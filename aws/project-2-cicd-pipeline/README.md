@@ -58,8 +58,16 @@ docker run -p 3001:3001 -e ENVIRONMENT=local my-webapp
 ```bash
 aws configure
 aws sts get-caller-identity
-chmod +x aws-setup.sh
-./aws-setup.sh
+chmod +x aws_setup.sh
+./aws_setup.sh
+```
+
+The script deploys to `af-south-1` and uses the existing `projects-vpc`
+(public subnets tagged `projects-vpc-subnet-public*`) by default. Override either
+with environment variables if needed:
+
+```bash
+AWS_REGION=af-south-1 VPC_NAME=my-vpc ./aws_setup.sh
 ```
 
 * Save all outputs to use in GitHub secrets
@@ -78,7 +86,7 @@ Add these secrets:
 | ------------------------ | ------------------- | -------------------------- |
 | AWS\_ACCESS\_KEY\_ID     | output              | GitHub Actions AWS access  |
 | AWS\_SECRET\_ACCESS\_KEY | output              | GitHub Actions AWS secret  |
-| AWS\_REGION              | us-east-1           | AWS region                 |
+| AWS\_REGION              | af-south-1          | AWS region (must match the VPC/ECS region) |
 | ECR\_REPOSITORY          | my-webapp           | Container registry name    |
 | ECS\_CLUSTER             | webapp-cicd-cluster | ECS cluster name           |
 | ECS\_SERVICE             | webapp-cicd-service | ECS service name           |
@@ -193,7 +201,7 @@ aws sts get-caller-identity
 
 ```bash
 aws --version
-bash -x aws-setup.sh
+bash -x aws_setup.sh
 ```
 
 ### GitHub Actions Issues
@@ -241,8 +249,7 @@ const apiKey = process.env.API_KEY || 'dev-key';
 ### Multiple Environments
 
 ```bash
-CLUSTER_NAME="webapp-staging-cluster"
-./aws-setup.sh
+CLUSTER_NAME="webapp-staging-cluster" ./aws_setup.sh
 ```
 
 ### Monitoring & Alerts

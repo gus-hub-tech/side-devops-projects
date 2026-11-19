@@ -3,13 +3,14 @@
 
 set -e  # Exit on any error
 
-# Configuration variables
-CLUSTER_NAME="webapp-cicd-cluster"
-SERVICE_NAME="webapp-cicd-service"
-TASK_FAMILY="webapp-cicd-task"
-ECR_REPOSITORY="my-webapp"
-AWS_REGION="us-east-1"
-GITHUB_USER_NAME="github-actions-user"
+# Configuration variables (override any of these via environment variables)
+CLUSTER_NAME="${CLUSTER_NAME:-webapp-cicd-cluster}"
+SERVICE_NAME="${SERVICE_NAME:-webapp-cicd-service}"
+TASK_FAMILY="${TASK_FAMILY:-webapp-cicd-task}"
+ECR_REPOSITORY="${ECR_REPOSITORY:-my-webapp}"
+AWS_REGION="${AWS_REGION:-af-south-1}"
+VPC_NAME="${VPC_NAME:-projects-vpc}"
+GITHUB_USER_NAME="${GITHUB_USER_NAME:-github-actions-user}"
 
 echo "=========================================="
 echo "Setting up AWS infrastructure for CI/CD"
@@ -18,6 +19,7 @@ echo "Cluster: $CLUSTER_NAME"
 echo "Service: $SERVICE_NAME"
 echo "ECR Repository: $ECR_REPOSITORY"
 echo "Region: $AWS_REGION"
+echo "VPC: $VPC_NAME"
 echo ""
 
 # Check if AWS CLI is configured
@@ -86,7 +88,13 @@ EXECUTION_ROLE_ARN=$(aws iam get-role \
 
 # 3. Create ECS cluster
 echo "🏗️ Creating ECS cluster..."
-if aws ecs describe-clusters --clusters $CLUSTER_NAME --region $AWS_REGION >/dev/null 2>&1; then
+EXISTING_CLUSTER=$(aws ecs describe-clusters \
+    --clusters "$CLUSTER_NAME" \
+    --region "$AWS_REGION" \
+    --query 'clusters[0].clusterName' \
+    --output text 2>/dev/null || true)
+
+if [ "$EXISTING_CLUSTER" = "$CLUSTER_NAME" ]; then
     echo "✅ ECS cluster already exists"
 else
     aws ecs create-cluster \
@@ -97,39 +105,77 @@ fi
 
 # 4. Get VPC and subnet information
 echo "🌐 Getting VPC information..."
-DEFAULT_VPC=$(aws ec2 describe-vpcs \
-    --filters "Name=is-default,Values=true" \
+VPC_ID=$(aws ec2 describe-vpcs \
+    --region "$AWS_REGION" \
+    --filters "Name=tag:Name,Values=$VPC_NAME" \
     --query 'Vpcs[0].VpcId' \
-    --output text)
+    --output text 2>/dev/null || true)
 
+# Fall back to the account's default VPC if the named VPC doesn't exist
+if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+    echo "⚠️  VPC '$VPC_NAME' not found, checking for a default VPC..."
+    VPC_ID=$(aws ec2 describe-vpcs \
+        --region "$AWS_REGION" \
+        --filters "Name=is-default,Values=true" \
+        --query 'Vpcs[0].VpcId' \
+        --output text 2>/dev/null || true)
+fi
+
+if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+    echo "❌ No VPC found in $AWS_REGION."
+    echo "   Create the '$VPC_NAME' VPC or set VPC_NAME to an existing VPC, then re-run."
+    exit 1
+fi
+
+# Prefer the public subnets (same naming convention as project 1)
 SUBNETS=$(aws ec2 describe-subnets \
-    --filters "Name=vpc-id,Values=$DEFAULT_VPC" \
+    --region "$AWS_REGION" \
+    --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=${VPC_NAME}-subnet-public*" \
     --query 'Subnets[*].SubnetId' \
     --output text | tr '\t' ',')
 
-echo "✅ VPC: $DEFAULT_VPC"
+# Fall back to every subnet in the VPC if no public subnets are tagged
+if [ -z "$SUBNETS" ] || [ "$SUBNETS" = "None" ]; then
+    echo "⚠️  No '$VPC_NAME-subnet-public*' subnets found, using all subnets in $VPC_ID"
+    SUBNETS=$(aws ec2 describe-subnets \
+        --region "$AWS_REGION" \
+        --filters "Name=vpc-id,Values=$VPC_ID" \
+        --query 'Subnets[*].SubnetId' \
+        --output text | tr '\t' ',')
+fi
+
+if [ -z "$SUBNETS" ] || [ "$SUBNETS" = "None" ]; then
+    echo "❌ No subnets found in VPC $VPC_ID."
+    exit 1
+fi
+
+echo "✅ VPC: $VPC_ID"
 echo "✅ Subnets: $SUBNETS"
 
 # 5. Create security group
 echo "🛡️ Creating security group..."
 SECURITY_GROUP_NAME="webapp-cicd-sg"
 
-if aws ec2 describe-security-groups --filters "Name=group-name,Values=$SECURITY_GROUP_NAME" --query 'SecurityGroups[0].GroupId' --output text >/dev/null 2>&1; then
-    SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
-        --filters "Name=group-name,Values=$SECURITY_GROUP_NAME" \
-        --query 'SecurityGroups[0].GroupId' \
-        --output text)
+SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
+    --region "$AWS_REGION" \
+    --filters "Name=group-name,Values=$SECURITY_GROUP_NAME" "Name=vpc-id,Values=$VPC_ID" \
+    --query 'SecurityGroups[0].GroupId' \
+    --output text 2>/dev/null || true)
+
+if [ -n "$SECURITY_GROUP_ID" ] && [ "$SECURITY_GROUP_ID" != "None" ]; then
     echo "✅ Security group already exists: $SECURITY_GROUP_ID"
 else
     SECURITY_GROUP_ID=$(aws ec2 create-security-group \
+        --region "$AWS_REGION" \
         --group-name $SECURITY_GROUP_NAME \
         --description "Security group for webapp CI/CD" \
-        --vpc-id $DEFAULT_VPC \
+        --vpc-id $VPC_ID \
         --query 'GroupId' \
         --output text)
 
     # Add inbound rule for port 3001
     aws ec2 authorize-security-group-ingress \
+        --region "$AWS_REGION" \
         --group-id $SECURITY_GROUP_ID \
         --protocol tcp \
         --port 3001 \
@@ -142,7 +188,13 @@ fi
 echo "📊 Creating CloudWatch log group..."
 LOG_GROUP_NAME="/ecs/$TASK_FAMILY"
 
-if aws logs describe-log-groups --log-group-name-prefix $LOG_GROUP_NAME --query 'logGroups[0].logGroupName' --output text >/dev/null 2>&1; then
+EXISTING_LOG_GROUP=$(aws logs describe-log-groups \
+    --region "$AWS_REGION" \
+    --log-group-name-prefix "$LOG_GROUP_NAME" \
+    --query "logGroups[?logGroupName=='$LOG_GROUP_NAME'].logGroupName" \
+    --output text 2>/dev/null || true)
+
+if [ "$EXISTING_LOG_GROUP" = "$LOG_GROUP_NAME" ]; then
     echo "✅ CloudWatch log group already exists"
 else
     aws logs create-log-group \
@@ -192,7 +244,14 @@ echo "✅ Initial task definition created"
 
 # 8. Create ECS service
 echo "🚀 Creating ECS service..."
-if aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --region $AWS_REGION >/dev/null 2>&1; then
+EXISTING_SERVICE=$(aws ecs describe-services \
+    --cluster "$CLUSTER_NAME" \
+    --services "$SERVICE_NAME" \
+    --region "$AWS_REGION" \
+    --query 'services[0].serviceName' \
+    --output text 2>/dev/null || true)
+
+if [ "$EXISTING_SERVICE" = "$SERVICE_NAME" ]; then
     echo "✅ ECS service already exists"
 else
     aws ecs create-service \
@@ -262,7 +321,7 @@ echo "2. Push your code to trigger the first deployment"
 echo "3. Watch the GitHub Actions workflow"
 echo "4. Get your app URL from the workflow output"
 echo ""
-echo "🧹 To clean up later:"
-echo "./cleanup-aws.sh"
+echo "🧹 To clean up later, run the commands in the 'Clean Up Resources'"
+echo "   section of this project's README."
 echo ""
 echo "=========================================="
