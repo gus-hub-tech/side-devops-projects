@@ -3,12 +3,12 @@ name: Deploy to Azure Container Instances
 on:
   push:
     branches: [main]
-    # paths:
-      # - 'azure/project-2-cicd-pipeline/**'  
+    paths:
+      - 'azure/project-2-cicd-pipeline/**'  # Only run when the Azure project-2 changes
   pull_request:
     branches: [main]
-    # paths:
-      # - 'azure/project-2-cicd-pipeline/**'  
+    paths:
+      - 'azure/project-2-cicd-pipeline/**'
   workflow_dispatch:  # Manual triggering
 
 env:
