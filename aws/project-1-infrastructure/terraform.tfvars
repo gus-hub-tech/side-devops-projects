@@ -1,6 +1,7 @@
 # terraform.tfvars - Your personal settings
 
-cluster_name     = "yourname-devops-cluster"
-aws_region      = "us-east-1"
+cluster_name    = "my-devops-cluster"
+aws_region      = "af-south-1"
+vpc_name        = "projects-vpc"
 environment     = "dev"
-container_image = "nginx:latest"
+container_image = "httpd:2.4"
