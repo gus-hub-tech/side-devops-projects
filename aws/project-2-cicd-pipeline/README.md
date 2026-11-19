@@ -39,6 +39,7 @@ npm start
 * Open: [http://localhost:3001](http://localhost:3001)
 * Health check: [http://localhost:3001/health](http://localhost:3001/health)
 * API endpoint: [http://localhost:3001/api/info](http://localhost:3001/api/info)
+* Version: [http://localhost:3001/api/version](http://localhost:3001/api/version)
 
 ---
 
@@ -129,6 +130,22 @@ Look for:
 * App: http\://\[IP]:3001
 * Health: http\://\[IP]:3001/health
 * API: http\://\[IP]:3001/api/info
+* Version: http\://\[IP]:3001/api/version
+
+### Application Endpoints
+
+| Route | Purpose |
+| ----- | ------- |
+| `/` | Status dashboard (version, environment, container, uptime) |
+| `/health` | Health probe used for monitoring |
+| `/api/info` | Runtime details (hostname, Node version, uptime) |
+| `/api/version` | App name and version |
+| anything else | JSON `404` with the list of valid routes |
+
+The app also logs one line per request (method, path, status, duration, client IP)
+to stdout, which CloudWatch captures in `/ecs/webapp-cicd-task`. It shuts down
+gracefully on `SIGTERM`, so ECS rolling deployments finish in-flight requests
+before the old task exits.
 
 ---
 
