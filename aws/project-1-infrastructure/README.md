@@ -1,6 +1,3 @@
-
-
-````markdown
 # 🚀 Project 1: Infrastructure as Code (AWS)
 
 Create your first AWS infrastructure using **Terraform** and **ECS Fargate**.
@@ -10,10 +7,13 @@ Create your first AWS infrastructure using **Terraform** and **ECS Fargate**.
 ## 🌐 What This Creates
 
 - ECS Fargate cluster (serverless containers)
-- ECS service running Nginx web server
+- ECS service running the configured container image
 - CloudWatch log group for monitoring
-- Security group for network access
+- Security group for network access in the existing `projects-vpc`
 - IAM roles for proper permissions
+
+> This account has no default VPC, so the configuration looks up `projects-vpc` by
+> its `Name` tag and places the service in its public subnets.
 
 ---
 
@@ -41,11 +41,11 @@ sudo apt install awscli
 
 # Configure AWS credentials
 aws configure
-# Provide Access Key, Secret Key, region (e.g. us-east-1), output (e.g. json)
+# Provide Access Key, Secret Key, region (e.g. af-south-1), output (e.g. json)
 
 # Verify login
 aws sts get-caller-identity
-````
+```
 
 ---
 
@@ -56,6 +56,7 @@ aws sts get-caller-identity
 # Change "yourname" to personalize
 
 cluster_name = "john-devops-cluster"
+vpc_name     = "projects-vpc"
 ```
 
 ---
@@ -66,13 +67,39 @@ cluster_name = "john-devops-cluster"
 # Initialize Terraform
 terraform init
 
-# Review planned changes
+# Review planned changes (works with the server's read-only role)
 terraform plan
 
-# Apply the configuration
-terraform apply
-# Confirm with 'yes' when prompted
+# Apply (needs temporary SSO admin credentials)
+./run-with-sso.sh apply
 ```
+
+---
+
+### 🔑 AWS access on the projects server
+
+The server's instance role (`ec2-ssm-role`) is read-only: `terraform init`,
+`validate`, `fmt` and `plan` work directly. `apply` and `destroy` need admin
+credentials from your SSO session.
+
+If your SSO token has expired, refresh it on your **local** machine first:
+
+```bash
+aws sso login --profile assetsync-sso
+```
+
+Then, from your local machine, send temporary credentials to the server and run
+Terraform with the helper script:
+
+```bash
+{ aws configure export-credentials --profile assetsync-sso --format env; \
+  echo 'cd ~/side-devops-projects/aws/project-1-infrastructure && ./run-with-sso.sh apply'; \
+} | ssh -i /home/gus/.ssh/projects-key.pem \
+  ubuntu@ec2-13-247-60-145.af-south-1.compute.amazonaws.com 'bash -s'
+```
+
+Replace `apply` with `destroy` when tearing down. Credentials are passed over
+SSH and are never stored on the server.
 
 ---
 
