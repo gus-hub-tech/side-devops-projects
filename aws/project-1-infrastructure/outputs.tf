@@ -25,9 +25,19 @@ output "task_definition_arn" {
   value       = aws_ecs_task_definition.webapp.arn
 }
 
+output "vpc_id" {
+  description = "ID of the VPC used for the deployment"
+  value       = data.aws_vpc.projects.id
+}
+
+output "public_subnet_ids" {
+  description = "Public subnet IDs used by the ECS service"
+  value       = data.aws_subnets.projects_public.ids
+}
+
 output "next_steps" {
   description = "What to do next"
-  value = <<EOF
+  value       = <<EOF
 Your infrastructure is ready! Next steps:
 
 1. Check ECS Console: https://console.aws.amazon.com/ecs/home?region=${var.aws_region}#/clusters/${aws_ecs_cluster.main.name}
