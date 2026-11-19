@@ -14,16 +14,24 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Get the default VPC (every AWS account has one)
-data "aws_vpc" "default" {
-  default = true
+# Look up the existing projects VPC (this account has no default VPC)
+data "aws_vpc" "projects" {
+  filter {
+    name   = "tag:Name"
+    values = [var.vpc_name]
+  }
 }
 
-# Get subnets in the default VPC
-data "aws_subnets" "default" {
+# Use the public subnets of the projects VPC for the Fargate service
+data "aws_subnets" "projects_public" {
   filter {
     name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
+    values = [data.aws_vpc.projects.id]
+  }
+
+  filter {
+    name   = "tag:Name"
+    values = ["${var.vpc_name}-subnet-public*"]
   }
 }
 
@@ -82,7 +90,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
 resource "aws_security_group" "webapp_sg" {
   name        = "${var.cluster_name}-webapp-sg"
   description = "Security group for web application"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = data.aws_vpc.projects.id
 
   # Allow HTTP traffic on port 80
   ingress {
@@ -109,11 +117,11 @@ resource "aws_security_group" "webapp_sg" {
 # Create ECS Task Definition
 resource "aws_ecs_task_definition" "webapp" {
   family                   = "${var.cluster_name}-webapp"
-  network_mode            = "awsvpc"
+  network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                     = "256"
-  memory                  = "512"
-  execution_role_arn      = aws_iam_role.ecs_execution_role.arn
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
 
   container_definitions = jsonencode([
     {
@@ -157,7 +165,7 @@ resource "aws_ecs_service" "webapp" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = data.aws_subnets.default.ids
+    subnets          = data.aws_subnets.projects_public.ids
     security_groups  = [aws_security_group.webapp_sg.id]
     assign_public_ip = true
   }
