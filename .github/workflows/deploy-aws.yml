@@ -5,18 +5,20 @@ on:
     branches: [main]
     paths:
       - 'aws/project-2-cicd-pipeline/**'  # Only run when the AWS project-2 changes
+      - '.github/workflows/deploy-aws.yml'
   pull_request:
     branches: [main]
     paths:
       - 'aws/project-2-cicd-pipeline/**'
+      - '.github/workflows/deploy-aws.yml'
   workflow_dispatch:  # Manual triggering
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-  ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
-  ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-  ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION }}
+  AWS_REGION: ${{ secrets.AWS_REGION || 'af-south-1' }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY || 'my-webapp' }}
+  ECS_SERVICE: ${{ secrets.ECS_SERVICE || 'webapp-cicd-service' }}
+  ECS_CLUSTER: ${{ secrets.ECS_CLUSTER || 'webapp-cicd-cluster' }}
+  ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION || 'webapp-cicd-task' }}
 
 jobs:
   test:
@@ -62,7 +64,22 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
+    - name: Validate configuration
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        missing=0
+        [ -z "$AWS_ACCESS_KEY_ID" ] && { echo "::error::Repository secret AWS_ACCESS_KEY_ID is not set"; missing=1; }
+        [ -z "$AWS_SECRET_ACCESS_KEY" ] && { echo "::error::Repository secret AWS_SECRET_ACCESS_KEY is not set"; missing=1; }
+        [ -z "$AWS_REGION" ] && { echo "::error::AWS_REGION resolved to empty"; missing=1; }
+        [ -z "$ECR_REPOSITORY" ] && { echo "::error::ECR_REPOSITORY resolved to empty"; missing=1; }
+        [ -z "$ECS_CLUSTER" ] && { echo "::error::ECS_CLUSTER resolved to empty"; missing=1; }
+        [ -z "$ECS_SERVICE" ] && { echo "::error::ECS_SERVICE resolved to empty"; missing=1; }
+        [ -z "$ECS_TASK_DEFINITION" ] && { echo "::error::ECS_TASK_DEFINITION resolved to empty"; missing=1; }
+        exit $missing
+
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -81,19 +98,19 @@ jobs:
         IMAGE_TAG: ${{ github.sha }}
       run: |
         # Build Docker image from project-2 directory
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+        docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" .
         
         # Push to ECR
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
         
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
     
     - name: Download task definition
       run: |
         aws ecs describe-task-definition \
-          --task-definition $ECS_TASK_DEFINITION \
+          --task-definition "$ECS_TASK_DEFINITION" \
           --query taskDefinition > task-definition.json
     
     - name: Fill in the new image ID in the Amazon ECS task definition
@@ -119,16 +136,16 @@ jobs:
         
         # Get the public IP of the running task
         TASK_ARN=$(aws ecs list-tasks \
-          --cluster $ECS_CLUSTER \
-          --service-name $ECS_SERVICE \
+          --cluster "$ECS_CLUSTER" \
+          --service-name "$ECS_SERVICE" \
           --query 'taskArns[0]' \
           --output text)
         
         if [ "$TASK_ARN" != "None" ] && [ "$TASK_ARN" != "" ]; then
           # Get network interface ID
           NETWORK_INTERFACE_ID=$(aws ecs describe-tasks \
-            --cluster $ECS_CLUSTER \
-            --tasks $TASK_ARN \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
             --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
             --output text)
           
