@@ -3,7 +3,13 @@
 variable "aws_region" {
   description = "AWS region to deploy resources"
   type        = string
-  default     = "us-east-1"
+  default     = "af-south-1"
+}
+
+variable "vpc_name" {
+  description = "Name tag of the existing VPC to deploy into"
+  type        = string
+  default     = "projects-vpc"
 }
 
 variable "cluster_name" {
