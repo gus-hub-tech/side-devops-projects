@@ -1,0 +1,14 @@
+# Keep the image's npm-built node_modules; don't overlay the host copy.
+node_modules
+
+# Never ship VCS data or local logs.
+.git
+.gitignore
+npm-debug.log*
+*.log
+
+# Image/build inputs aren't needed at runtime.
+Dockerfile
+.dockerignore
+README.md
+aws_setup.sh
