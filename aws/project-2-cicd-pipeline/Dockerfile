@@ -1,11 +1,9 @@
 # This tells Docker how to package your app.
 
-# Base image: official Node.js 18 running on Alpine Linux.
+# Base image: official Node.js 24 (current LTS) running on Alpine Linux.
 # It already contains the `node` and `npm` binaries, so the container can run
 # app.js without installing Node on the host. Alpine keeps the image small.
-# Note: Node 18 reached end-of-life in April 2025; node:24-alpine is the
-# current LTS when you're ready to upgrade.
-FROM node:18-alpine
+FROM node:24-alpine
 
 # Create /app inside the container and make it the working directory.
 # Every command below runs from here, and the app files will live here.
