@@ -36,7 +36,11 @@ side-devops-projects/
 │       └── deploy-aws.yml          # CI/CD workflow for this project
 └── aws/
     └── project-2-cicd-pipeline/
-        ├── app.js                  # Express application
+        ├── app.js                  # Express app, middleware, and routes
+        ├── server.js               # Listener, PORT validation, shutdown
+        ├── test/
+        │   ├── app.test.js         # Route, header, and response tests
+        │   └── server.test.js      # PORT validation tests
         ├── Dockerfile              # node:24-alpine image
         ├── .dockerignore
         ├── package.json
@@ -87,9 +91,16 @@ Then open:
 | <http://localhost:3001/api/info> | Runtime details |
 | <http://localhost:3001/api/version> | App name, version, environment |
 
-`npm test` currently runs a placeholder command (`echo 'Tests passed!'`). There
-is no real test suite yet; the CI "Run tests" step is therefore a no-op until
-tests are added.
+Run the test suite with:
+
+```bash
+npm test
+```
+
+`npm test` uses the built-in Node.js test runner (`node --test`) and Supertest.
+The tests cover every route, the 404 fallback, security headers, request ID
+handling, and invalid `PORT` values. They import the Express app directly, so
+no port is opened during route tests.
 
 ---
 
@@ -220,7 +231,7 @@ What happens next:
 1. Checks out the repository.
 2. Sets up Node.js 18 with npm caching.
 3. Runs `npm ci`.
-4. Runs `npm test` (currently the placeholder script).
+4. Runs `npm test` (the `node:test` + Supertest suite).
 5. Builds the Docker image to verify the `Dockerfile`.
 
 ### Deploy to AWS ECS job
@@ -297,7 +308,7 @@ and `Cache-Control: no-store`.
 
 ### Application behavior
 
-The app reads these environment variables:
+The service reads these environment variables:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
@@ -307,6 +318,9 @@ The app reads these environment variables:
 
 Other behavior:
 
+* `app.js` builds the Express app without startup side effects; `server.js`
+  owns the listener, `PORT` validation, keep-alive settings, and graceful
+  shutdown. That split lets tests import the app without opening a port.
 * Logs one line per request to stdout (method, path, status, duration, client
   IP, request ID). CloudWatch captures these in `/ecs/webapp-cicd-task`.
 * Accepts or generates an `X-Request-Id` and returns it in the response header.
@@ -321,7 +335,7 @@ Other behavior:
 ## 🔁 Making Changes
 
 ```bash
-git add aws/project-2-cicd-pipeline/app.js
+git add aws/project-2-cicd-pipeline
 git commit -m "Update dashboard text"
 git push origin main
 ```
@@ -539,6 +553,8 @@ and try again.
 ## 🌟 What You Learned
 
 * Building a small Node.js/Express service with health and info endpoints
+* Separating app creation from server startup so the app is testable
+* Testing Express routes with `node:test` and Supertest
 * Containerizing an app with a cached, production-only dependency install
 * Creating ECR, ECS Fargate, IAM, security group, and CloudWatch resources
   with a shell script
@@ -549,7 +565,9 @@ and try again.
 
 ## 🚀 Next Steps
 
-* Replace the placeholder `npm test` script with real tests
+* ~~Replace the placeholder `npm test` script with real tests~~ ✅ Complete
+* Add test coverage reporting to the CI test job
+* Add an integration test for graceful shutdown on `SIGTERM`
 * Add an Application Load Balancer and a stable DNS name
 * Try blue/green deployments with CodeDeploy
 * Add a database and store connection details in Secrets Manager
