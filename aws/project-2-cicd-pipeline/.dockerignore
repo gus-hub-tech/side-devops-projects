@@ -12,3 +12,7 @@ Dockerfile
 .dockerignore
 README.md
 aws_setup.sh
+
+# Tests and test fixtures aren't needed in the production image.
+test
+*.test.js
