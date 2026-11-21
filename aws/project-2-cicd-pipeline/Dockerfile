@@ -29,5 +29,5 @@ EXPOSE 3001
 
 # Command that runs when the container starts. This is what package.json's
 # "start" script does, but invoking node directly makes it PID 1 so it receives
-# SIGTERM/SIGINT itself and the server.close() handler can drain cleanly.
-CMD ["node", "app.js"]
+# SIGTERM/SIGINT itself and server.js can drain connections cleanly.
+CMD ["node", "server.js"]
