@@ -63,10 +63,10 @@ variable "github_actions_user_name" {
   default     = "github-actions-user"
 }
 
-variable "container_image" {
-  description = "Container image for the initial task definition. Defaults to the image currently running in the account; the CI deploy job registers later revisions."
+variable "container_image_tag" {
+  description = "Image tag for the initial task definition. The repository URI is derived from the account, region, and ECR repository name. Defaults to the tag that was live when the stack was adopted; the CI deploy job registers later revisions."
   type        = string
-  default     = "042560858653.dkr.ecr.af-south-1.amazonaws.com/my-webapp:de1d621dbbbfb6f463512f3bd1cd7b824eff6c9e"
+  default     = "de1d621dbbbfb6f463512f3bd1cd7b824eff6c9e"
 }
 
 variable "container_port" {
