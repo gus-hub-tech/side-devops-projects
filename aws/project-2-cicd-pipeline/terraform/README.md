@@ -1,6 +1,6 @@
 # Terraform for the CI/CD pipeline
 
-This configuration codifies the AWS resources created by `../aws_setup.sh`:
+This configuration codifies the AWS resources created by `../aws-script/aws_setup.sh`:
 
 - ECR repository with scan-on-push and a lifecycle policy (1 tagged, 1 untagged)
 - ECS Fargate cluster, task definition, and service
