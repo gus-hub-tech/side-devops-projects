@@ -46,6 +46,9 @@ jobs:
     - name: Run tests with coverage
       run: npm run test:coverage
 
+    - name: Enforce coverage thresholds
+      run: npm run coverage:check
+
     - name: Publish coverage summary
       if: always()
       run: |
