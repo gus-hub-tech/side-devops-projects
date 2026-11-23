@@ -16,7 +16,7 @@ resource "aws_ecs_task_definition" "webapp" {
   container_definitions = jsonencode([
     {
       name      = local.container_name
-      image     = var.container_image
+      image     = local.container_image
       essential = true
       cpu       = 0
 
