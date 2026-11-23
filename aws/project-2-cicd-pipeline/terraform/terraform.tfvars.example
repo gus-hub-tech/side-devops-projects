@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars and override only what differs from the live stack.
+# The defaults already match aws_setup.sh and the existing account resources.
+
+aws_region                 = "af-south-1"
+vpc_name                   = "projects-vpc"
+cluster_name               = "webapp-cicd-cluster"
+service_name               = "webapp-cicd-service"
+task_family                = "webapp-cicd-task"
+ecr_repository_name        = "my-webapp"
+log_group_name             = "/ecs/webapp-cicd-task"
+security_group_name        = "webapp-cicd-sg"
+execution_role_name        = "ecsTaskExecutionRole-webapp-cicd-cluster"
+github_actions_user_name   = "github-actions-user"
+container_port             = 3001
+cpu                        = "256"
+memory                     = "512"
+desired_count              = 1
+environment                = "production"
+
+# Defaults to the image that was running when the configuration was written.
+# The deploy workflow registers later task definition revisions.
+# container_image = "042560858653.dkr.ecr.af-south-1.amazonaws.com/my-webapp:<tag>"
