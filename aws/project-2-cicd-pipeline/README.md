@@ -47,7 +47,9 @@ side-devops-projects/
         ├── .dockerignore
         ├── package.json
         ├── package-lock.json
-        ├── aws_setup.sh            # Creates the AWS infrastructure
+        ├── aws-script/             # Bootstrap scripts
+        │   ├── aws_setup.sh        # Creates the AWS infrastructure
+        │   └── README.md           # Setup script usage and behavior
         ├── terraform/              # IaC that adopts the deployed AWS stack
         │   ├── main.tf             # Provider, identity, ECS cluster
         │   ├── network.tf          # Existing VPC and public subnets
@@ -155,11 +157,13 @@ the setup script out of the build context.
 
 ## ✅ Step 3: Create the AWS Infrastructure
 
+From the project root (`aws/project-2-cicd-pipeline/`):
+
 ```bash
 aws configure
 aws sts get-caller-identity
-chmod +x aws_setup.sh
-./aws_setup.sh
+chmod +x aws-script/aws_setup.sh
+./aws-script/aws_setup.sh
 ```
 
 The script defaults to `af-south-1` and the existing `projects-vpc`. It creates
@@ -189,7 +193,8 @@ and it creates new access keys only if the IAM user has fewer than two.
 * The service is created with `assignPublicIp=ENABLED` so the task can be
   reached directly on port `3001`.
 
-Override any of the defaults with environment variables:
+Override any of the defaults with environment variables, still from the project
+root:
 
 ```bash
 AWS_REGION=af-south-1 \
@@ -199,10 +204,12 @@ SERVICE_NAME=webapp-cicd-service \
 TASK_FAMILY=webapp-cicd-task \
 ECR_REPOSITORY=my-webapp \
 GITHUB_USER_NAME=github-actions-user \
-./aws_setup.sh
+./aws-script/aws_setup.sh
 ```
 
-At the end, the script prints the values to use as GitHub secrets.
+At the end, the script prints the values to use as GitHub secrets. See
+[`aws-script/README.md`](aws-script/README.md) for a detailed walkthrough of
+the script and its re-run behavior.
 
 > The initial task definition uses the placeholder image `nginx:latest`. The
 > service will not run your app until the first successful pipeline deployment
@@ -464,7 +471,7 @@ minutes because the workflow waits for the ECS service to stabilize.
 * **Script fails unexpectedly** — rerun with shell tracing:
 
   ```bash
-  bash -x aws_setup.sh
+  bash -x aws-script/aws_setup.sh
   ```
 
 ### GitHub Actions issues
@@ -530,7 +537,7 @@ SERVICE_NAME=webapp-staging-service \
 TASK_FAMILY=webapp-staging-task \
 ECR_REPOSITORY=my-webapp-staging \
 GITHUB_USER_NAME=github-actions-staging \
-./aws_setup.sh
+./aws-script/aws_setup.sh
 ```
 
 Two limitations to be aware of:
