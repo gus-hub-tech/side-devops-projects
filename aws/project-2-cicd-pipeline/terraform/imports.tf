@@ -6,10 +6,15 @@
 #
 # The ECS task definition is imported at the revision that was live when this
 # configuration was written. If the CI deploy job has already registered a
-# newer revision, update :12 below to the revision Terraform should adopt.
+# newer revision, update :14 below to the revision Terraform should adopt.
 
 import {
   to = aws_ecr_repository.webapp
+  id = var.ecr_repository_name
+}
+
+import {
+  to = aws_ecr_lifecycle_policy.webapp
   id = var.ecr_repository_name
 }
 
@@ -40,7 +45,7 @@ import {
 
 import {
   to = aws_ecs_task_definition.webapp
-  id = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.task_family}:12"
+  id = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.task_family}:14"
 }
 
 import {
