@@ -2,7 +2,7 @@
 
 This configuration codifies the AWS resources created by `../aws_setup.sh`:
 
-- ECR repository with scan-on-push
+- ECR repository with scan-on-push and a lifecycle policy (1 tagged, 1 untagged)
 - ECS Fargate cluster, task definition, and service
 - CloudWatch log group
 - Security group exposing port `3001`
@@ -25,9 +25,11 @@ terraform plan
 terraform apply
 ```
 
-Review the plan before applying. It should show imports and no replacements.
-If the CI workflow has already registered a newer ECS task definition revision,
-update the `:12` in `imports.tf` to the revision Terraform should adopt.
+Review the plan before applying. It should show 12 imports and no replacements.
+The ECR lifecycle policy import is followed by an in-place update that adds the
+tagged-image expiration rule. If the CI workflow has already registered a newer
+ECS task definition revision, update the `:14` in `imports.tf` to the revision
+Terraform should adopt.
 
 ## AWS credentials
 
@@ -47,11 +49,13 @@ the server's temporary credentials, as described there.
 
 The GitHub Actions deploy job still registers new task definition revisions and
 points the ECS service at them. To avoid fighting that workflow, the service
-has `ignore_changes = [task_definition]`. Terraform owns the service,
-networking, desired count, security group, cluster, and supporting resources;
-CI owns application revisions. Terraform tracks only the revision listed in
-`imports.tf`; revisions registered by CI after adoption stay outside state, so
-`terraform destroy` will not deregister them.
+has `ignore_changes = [task_definition]` and the task definition has
+`ignore_changes = [container_definitions]`. Terraform owns the service,
+networking, desired count, security group, cluster, lifecycle policy, and
+supporting resources; CI owns application revisions and images. Terraform
+tracks only the revision listed in `imports.tf`; revisions registered by CI
+after adoption stay outside state, so `terraform destroy` will not deregister
+them.
 
 The IAM access key for `github-actions-user` is deliberately not managed here.
 Its secret can only be read when it is created, so Terraform cannot import the
