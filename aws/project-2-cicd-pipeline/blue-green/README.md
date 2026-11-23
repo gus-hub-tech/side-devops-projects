@@ -57,7 +57,7 @@ Terraform AWS provider and AWS CLI docs before applying.
 | Auto rollback | `DEPLOYMENT_FAILURE` immediately; add alarm-based rollback in phase 2 | Failure rollback is free; alarms need tuning |
 | Original task set | Terminate after 5 minutes | Keeps both versions running briefly for manual verification |
 | IAM for CI | Attach `AWSCodeDeployFullAccess` to `github-actions-user`, plus `iam:PassRole` for the CodeDeploy role | Fine for a learning account; scope down later |
-| `aws_setup.sh` | Treat Terraform as source of truth for new resources; add a note to the script instead of duplicating all ALB/CodeDeploy creation | Avoid maintaining two definitions of the same infrastructure |
+| `aws-script/aws_setup.sh` | Treat Terraform as source of truth for new resources; add a note to the script instead of duplicating all ALB/CodeDeploy creation | Avoid maintaining two definitions of the same infrastructure |
 
 ---
 
@@ -278,9 +278,9 @@ Terraform too.
 - `terraform/README.md`: list the new ALB, target groups, listener, CodeDeploy
   app/deployment group, and IAM role; explain that CodeDeploy (not Terraform)
   mutates the service's target group and task definition during deployments.
-- `aws_setup.sh`: add a note that it is the initial bootstrap only and that
-  Terraform is authoritative for load balancing/CodeDeploy, or extend the script
-  if fresh-install parity matters.
+- `aws-script/aws_setup.sh`: add a note that it is the initial bootstrap only
+  and that Terraform is authoritative for load balancing/CodeDeploy, or extend
+  the script if fresh-install parity matters.
 - Note ongoing cost: ALB hourly charge plus two full Fargate task sets running
   during each deployment. `terraform destroy` will remove the new resources as
   well as the existing stack.
