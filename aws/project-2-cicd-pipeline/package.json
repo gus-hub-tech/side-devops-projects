@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "test:coverage": "c8 node --test"
+    "test:coverage": "c8 node --test",
+    "coverage:check": "c8 check-coverage --lines 96 --branches 76 --functions 100 --statements 96"
   },
   "c8": {
     "all": true,
