@@ -46,6 +46,18 @@ side-devops-projects/
         ├── package.json
         ├── package-lock.json
         ├── aws_setup.sh            # Creates the AWS infrastructure
+        ├── terraform/              # IaC that adopts the deployed AWS stack
+        │   ├── main.tf             # Provider, identity, ECS cluster
+        │   ├── network.tf          # Existing VPC and public subnets
+        │   ├── security.tf         # Port 3001 security group
+        │   ├── ecr.tf              # Image repository
+        │   ├── ecs.tf              # Task definition and service
+        │   ├── iam.tf              # Execution role and GitHub Actions user
+        │   ├── logs.tf             # CloudWatch log group
+        │   ├── imports.tf          # Adopt the resources created by aws_setup.sh
+        │   ├── variables.tf
+        │   ├── outputs.tf
+        │   └── README.md           # Terraform usage and ownership notes
         └── README.md
 ```
 
@@ -189,6 +201,28 @@ At the end, the script prints the values to use as GitHub secrets.
 > The initial task definition uses the placeholder image `nginx:latest`. The
 > service will not run your app until the first successful pipeline deployment
 > replaces that image.
+
+### Managing the stack with Terraform
+
+The `terraform/` directory codifies the same resources and contains import
+blocks that adopt the currently deployed stack instead of recreating it:
+
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+`plan` should show **11 imports, 0 to add, 0 to destroy**, plus two meta-flag
+changes (`force_delete` on ECR and `force_destroy` on the IAM user). Review it
+before applying. The configuration looks up the existing `projects-vpc` and
+public subnets as data sources; it does not create networking.
+
+Terraform and the CI workflow share ownership: the deploy job still registers
+new task definition revisions, so the service ignores `task_definition`
+changes. The IAM access key stays in GitHub secrets and is not managed by
+Terraform. See [`terraform/README.md`](terraform/README.md) for details.
 
 ---
 
@@ -371,6 +405,8 @@ minutes because the workflow waits for the ECS service to stabilize.
 * **EC2 security group** — allows inbound TCP `3001` from anywhere.
 * **Existing VPC/subnets** — the script reuses networking rather than creating
   a new VPC.
+* **Terraform** — codifies the same resources in `terraform/` and can adopt the
+  live stack with import blocks for day-two management.
 
 ---
 
