@@ -39,6 +39,18 @@ variable "ecr_repository_name" {
   default     = "my-webapp"
 }
 
+variable "ecr_tagged_image_count" {
+  description = "Number of most recent commit-SHA tagged ECR images to keep"
+  type        = number
+  default     = 1
+}
+
+variable "ecr_untagged_image_count" {
+  description = "Number of most recent untagged ECR images to keep"
+  type        = number
+  default     = 1
+}
+
 variable "log_group_name" {
   description = "CloudWatch log group used by the container"
   type        = string
@@ -66,7 +78,7 @@ variable "github_actions_user_name" {
 variable "container_image_tag" {
   description = "Image tag for the initial task definition. The repository URI is derived from the account, region, and ECR repository name. Defaults to the tag that was live when the stack was adopted; the CI deploy job registers later revisions."
   type        = string
-  default     = "de1d621dbbbfb6f463512f3bd1cd7b824eff6c9e"
+  default     = "8b63159c311665f253285ee6aeb0bc4bc5a75612"
 }
 
 variable "container_port" {
