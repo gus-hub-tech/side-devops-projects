@@ -13,7 +13,8 @@ Dockerfile
 README.md
 aws_setup.sh
 
-# Tests, test fixtures, and coverage output aren't needed in the production image.
+# Tests, test fixtures, coverage output, and IaC aren't needed in the image.
 test
 *.test.js
 coverage
+terraform
