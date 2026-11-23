@@ -1,6 +1,6 @@
 # main.tf - Core settings and the ECS cluster for the CI/CD web app
 #
-# This configuration adopts the resources created by ../aws_setup.sh. The
+# This configuration adopts the resources created by ../aws-script/aws_setup.sh. The
 # import blocks in imports.tf map the existing AWS resources to the addresses
 # below, so the first apply does not recreate or replace the running service.
 
