@@ -50,6 +50,11 @@ resource "aws_ecs_task_definition" "webapp" {
       }
     }
   ])
+
+  lifecycle {
+    # CI owns task definition revisions; do not re-register the imported one.
+    ignore_changes = [container_definitions]
+  }
 }
 
 resource "aws_ecs_service" "webapp" {
