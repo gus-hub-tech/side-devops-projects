@@ -484,6 +484,33 @@ app.get('/api/version', (req, res) => {
   res.json({ name: pkg.name, version: APP_VERSION, environment: ENVIRONMENT });
 });
 
+// Test-only route used by the graceful-shutdown integration test. Headers are
+// flushed before the timer starts so the test can send SIGTERM while this
+// request is genuinely in flight. It is never registered outside test mode.
+if (ENVIRONMENT === 'test') {
+  app.get('/__test/slow', (req, res) => {
+    const requested = Number(req.query.delay);
+    const delayMs = Number.isInteger(requested)
+      ? Math.min(Math.max(requested, 1), 5000)
+      : 1000;
+    const startedAt = Date.now();
+
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.flushHeaders();
+
+    setTimeout(() => {
+      res.end(
+        JSON.stringify({
+          ok: true,
+          delayMs,
+          elapsedMs: Date.now() - startedAt,
+          finishedAt: new Date().toISOString(),
+        })
+      );
+    }, delayMs);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Fallbacks
 // ---------------------------------------------------------------------------
