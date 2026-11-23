@@ -13,7 +13,8 @@ deployed to Amazon ECS Fargate by GitHub Actions.
 
 * An Express status dashboard with health and version endpoints
 * A Docker image based on `node:24-alpine`
-* An Amazon ECR repository with image scanning on push
+* An Amazon ECR repository with image scanning on push and a lifecycle policy
+  that keeps the 1 most recent tagged image and 1 untagged image
 * An ECS Fargate cluster and service running one task
 * CloudWatch logging for the container
 * A GitHub Actions pipeline that tests, builds, pushes, and deploys on pushes
@@ -40,7 +41,8 @@ side-devops-projects/
         ├── server.js               # Listener, PORT validation, shutdown
         ├── test/
         │   ├── app.test.js         # Route, header, and response tests
-        │   └── server.test.js      # PORT validation tests
+        │   ├── server.test.js      # PORT validation tests
+        │   └── shutdown.test.js    # SIGTERM shutdown + in-flight drain tests
         ├── Dockerfile              # node:24-alpine image
         ├── .dockerignore
         ├── package.json
@@ -50,7 +52,7 @@ side-devops-projects/
         │   ├── main.tf             # Provider, identity, ECS cluster
         │   ├── network.tf          # Existing VPC and public subnets
         │   ├── security.tf         # Port 3001 security group
-        │   ├── ecr.tf              # Image repository
+        │   ├── ecr.tf              # Image repository and lifecycle policy
         │   ├── ecs.tf              # Task definition and service
         │   ├── iam.tf              # Execution role and GitHub Actions user
         │   ├── logs.tf             # CloudWatch log group
@@ -110,9 +112,13 @@ npm test
 ```
 
 `npm test` uses the built-in Node.js test runner (`node --test`) and Supertest.
-The tests cover every route, the 404 fallback, security headers, request ID
-handling, and invalid `PORT` values. They import the Express app directly, so
-no port is opened during route tests.
+The route tests cover every route, the 404 fallback, security headers, request
+ID handling, and invalid `PORT` values. They import the Express app directly, so
+no port is opened for those tests. Two integration tests spawn the real server:
+one verifies that `SIGTERM` logs the shutdown, exits with code `0`, and stops
+listening; the other starts a request against a test-only slow endpoint, sends
+`SIGTERM` while that request is still in flight, and verifies that the response
+finishes before the process exits.
 
 To run the same suite with coverage:
 
@@ -214,8 +220,9 @@ terraform plan
 terraform apply
 ```
 
-`plan` should show **11 imports, 0 to add, 0 to destroy**, plus two meta-flag
-changes (`force_delete` on ECR and `force_destroy` on the IAM user). Review it
+`plan` should show **12 imports, 0 to add, 0 to destroy**, plus meta-flag changes
+(`force_delete` on ECR and `force_destroy` on the IAM user) and an in-place
+update to the ECR lifecycle policy that adds tagged-image expiration. Review it
 before applying. The configuration looks up the existing `projects-vpc` and
 public subnets as data sources; it does not create networking.
 
@@ -290,7 +297,8 @@ Runs only after the test job succeeds and only on `main`:
 1. Validates that the required AWS secrets are present.
 2. Configures AWS credentials.
 3. Logs in to Amazon ECR.
-4. Builds and pushes two image tags: the Git commit SHA and `latest`.
+4. Builds and pushes one image tag: the Git commit SHA. There is no mutable
+   `latest` tag, so the newest tagged image is always the one just deployed.
 5. Downloads the current ECS task definition.
 6. Replaces the `webapp` container image with the new image.
 7. Deploys the new task definition to the ECS service and waits for stability.
@@ -375,6 +383,9 @@ Other behavior:
 * Accepts or generates an `X-Request-Id` and returns it in the response header.
 * Shuts down gracefully on `SIGTERM` and `SIGINT`: stops accepting connections,
   drains in-flight requests, and forces exit after 10 seconds.
+* Registers `/__test/slow?delay=<ms>` only when `ENVIRONMENT=test`. It flushes
+  response headers immediately, then delays the body so the shutdown test can
+  prove an in-flight request completes. It returns 404 in production.
 * Keeps idle connections open slightly longer than the typical 60-second load
   balancer timeout (`keepAliveTimeout` 65s, `headersTimeout` 66s).
 * Has no database or external service dependency.
@@ -396,7 +407,8 @@ minutes because the workflow waits for the ECS service to stabilize.
 
 ## 🧱 AWS Components
 
-* **Amazon ECR** — stores the Docker images and scans them on push.
+* **Amazon ECR** — stores the Docker images, scans them on push, and expires
+  old images with a lifecycle policy (1 tagged, 1 untagged).
 * **Amazon ECS Fargate** — runs the service on serverless compute
   (`awsvpc` networking, `256` CPU units, `512` MiB memory, one task).
 * **CloudWatch Logs** — captures container stdout in `/ecs/webapp-cicd-task`.
@@ -606,6 +618,8 @@ and try again.
 * Building a small Node.js/Express service with health and info endpoints
 * Separating app creation from server startup so the app is testable
 * Testing Express routes with `node:test` and Supertest
+* Testing process signals, graceful shutdown, and in-flight request draining
+  with a spawned server
 * Containerizing an app with a cached, production-only dependency install
 * Creating ECR, ECS Fargate, IAM, security group, and CloudWatch resources
   with a shell script
@@ -613,6 +627,8 @@ and try again.
 * Passing an image tag through the pipeline and rendering an ECS task
   definition
 * Reading application logs and troubleshooting an ECS deployment
+* Codifying the live stack with Terraform import blocks and managing ECR image
+  retention with a lifecycle policy
 
 ## 🚀 Next Steps
 
@@ -620,8 +636,10 @@ and try again.
 * ~~Add test coverage reporting to the CI test job~~ ✅ Complete
 * Set a minimum coverage percentage threshold in the CI test job once the
   current baseline is established (coverage is currently reported, not enforced)
-* Add an integration test for graceful shutdown on `SIGTERM`
+* ~~Add an integration test for graceful shutdown on `SIGTERM`~~ ✅ Complete
+* ~~Add a slow test endpoint to verify in-flight requests finish draining during `SIGTERM`~~ ✅ Complete
 * Add an Application Load Balancer and a stable DNS name
+* ~~Add lifecycle policies to the ECR repository to clean up old images~~ ✅ Complete
 * Try blue/green deployments with CodeDeploy
 * Add a database and store connection details in Secrets Manager
 * Add CloudWatch alarms and a dashboard
