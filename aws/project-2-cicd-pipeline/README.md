@@ -102,6 +102,18 @@ The tests cover every route, the 404 fallback, security headers, request ID
 handling, and invalid `PORT` values. They import the Express app directly, so
 no port is opened during route tests.
 
+To run the same suite with coverage:
+
+```bash
+npm run test:coverage
+```
+
+Coverage is collected with [c8](https://github.com/bcoe/c8) and written to
+`coverage/` as a browsable HTML report plus `lcov.info`. The CI test job prints
+the coverage summary to the workflow run summary and uploads the full report as
+the downloadable `coverage-report` artifact. No minimum coverage percentage is
+enforced yet — see the **Next Steps** section at the end of this README.
+
 ---
 
 ## ✅ Step 2: Build and Run the Docker Image
@@ -231,8 +243,11 @@ What happens next:
 1. Checks out the repository.
 2. Sets up Node.js 18 with npm caching.
 3. Runs `npm ci`.
-4. Runs `npm test` (the `node:test` + Supertest suite).
-5. Builds the Docker image to verify the `Dockerfile`.
+4. Runs `npm run test:coverage` (the `node:test` + Supertest suite, measured by
+   c8).
+5. Prints the coverage summary to the run summary and uploads the full HTML and
+   `lcov` report as the `coverage-report` artifact.
+6. Builds the Docker image to verify the `Dockerfile`.
 
 ### Deploy to AWS ECS job
 
@@ -566,7 +581,9 @@ and try again.
 ## 🚀 Next Steps
 
 * ~~Replace the placeholder `npm test` script with real tests~~ ✅ Complete
-* Add test coverage reporting to the CI test job
+* ~~Add test coverage reporting to the CI test job~~ ✅ Complete
+* Set a minimum coverage percentage threshold in the CI test job once the
+  current baseline is established (coverage is currently reported, not enforced)
 * Add an integration test for graceful shutdown on `SIGTERM`
 * Add an Application Load Balancer and a stable DNS name
 * Try blue/green deployments with CodeDeploy
