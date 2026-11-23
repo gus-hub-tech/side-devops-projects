@@ -13,6 +13,7 @@ Dockerfile
 README.md
 aws_setup.sh
 
-# Tests and test fixtures aren't needed in the production image.
+# Tests, test fixtures, and coverage output aren't needed in the production image.
 test
 *.test.js
+coverage
