@@ -131,8 +131,10 @@ npm run test:coverage
 Coverage is collected with [c8](https://github.com/bcoe/c8) and written to
 `coverage/` as a browsable HTML report plus `lcov.info`. The CI test job prints
 the coverage summary to the workflow run summary and uploads the full report as
-the downloadable `coverage-report` artifact. No minimum coverage percentage is
-enforced yet — see the **Next Steps** section at the end of this README.
+the downloadable `coverage-report` artifact. It also fails the job if coverage
+drops below the enforced thresholds: 96% statements/lines, 76% branches, and
+100% functions. Run `npm run coverage:check` to apply the same check locally
+after a coverage run.
 
 ---
 
@@ -293,9 +295,11 @@ What happens next:
 3. Runs `npm ci`.
 4. Runs `npm run test:coverage` (the `node:test` + Supertest suite, measured by
    c8).
-5. Prints the coverage summary to the run summary and uploads the full HTML and
+5. Runs `npm run coverage:check`, failing the job if coverage falls below 96%
+   statements/lines, 76% branches, or 100% functions.
+6. Prints the coverage summary to the run summary and uploads the full HTML and
    `lcov` report as the `coverage-report` artifact.
-6. Builds the Docker image to verify the `Dockerfile`.
+7. Builds the Docker image to verify the `Dockerfile`.
 
 ### Deploy to AWS ECS job
 
@@ -641,8 +645,7 @@ and try again.
 
 * ~~Replace the placeholder `npm test` script with real tests~~ ✅ Complete
 * ~~Add test coverage reporting to the CI test job~~ ✅ Complete
-* Set a minimum coverage percentage threshold in the CI test job once the
-  current baseline is established (coverage is currently reported, not enforced)
+* ~~Set a minimum coverage percentage threshold in the CI test job once the current baseline is established~~ ✅ Complete
 * ~~Add an integration test for graceful shutdown on `SIGTERM`~~ ✅ Complete
 * ~~Add a slow test endpoint to verify in-flight requests finish draining during `SIGTERM`~~ ✅ Complete
 * Add an Application Load Balancer and a stable DNS name
