@@ -11,7 +11,7 @@ npm-debug.log*
 Dockerfile
 .dockerignore
 README.md
-aws_setup.sh
+aws-script/
 
 # Tests, test fixtures, coverage output, and IaC aren't needed in the image.
 test
