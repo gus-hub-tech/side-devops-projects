@@ -17,6 +17,8 @@ memory                     = "512"
 desired_count              = 1
 environment                = "production"
 
-# Defaults to the image that was running when the configuration was written.
-# The deploy workflow registers later task definition revisions.
-# container_image = "042560858653.dkr.ecr.af-south-1.amazonaws.com/my-webapp:<tag>"
+# Image tag used for the initial task definition. The registry and repository
+# are derived from the account, region, and ecr_repository_name above, so no
+# account ID needs to be stored here. Defaults to the tag that was live when
+# the stack was adopted; the deploy workflow registers later revisions.
+# container_image_tag = "<tag>"
