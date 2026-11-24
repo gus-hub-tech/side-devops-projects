@@ -155,15 +155,15 @@ app.get('/', (req, res) => {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Status dashboard for ${escapeHtml(pkg.name)}" />
-  <meta name="theme-color" content="#f4f6fb" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#070b14" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#ffe066" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#3d3200" media="(prefers-color-scheme: dark)" />
   <title>${escapeHtml(pkg.name)} v${escapeHtml(APP_VERSION)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
     :root {
       color-scheme: light dark;
-      --bg: #f4f6fb;
+      --bg: #ffe066;
       --surface: rgba(255, 255, 255, 0.62);
       --card: rgba(255, 255, 255, 0.86);
       --text: #0f172a;
@@ -176,7 +176,7 @@ app.get('/', (req, res) => {
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #070b14;
+        --bg: #3d3200;
         --surface: rgba(148, 163, 184, 0.08);
         --card: rgba(15, 23, 42, 0.72);
         --text: #e2e8f0;
