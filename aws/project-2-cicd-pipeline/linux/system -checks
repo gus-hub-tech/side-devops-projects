@@ -1,0 +1,83 @@
+# Linux System Check Commands
+
+A single command list for checking CPU, RAM, disk, and network. Run each command manually, or use the all-in-one block at the bottom.
+
+---
+
+## 1. Overview
+
+```bash
+hostname
+date
+uptime
+```
+
+## 2. CPU
+
+```bash
+nproc
+top -bn1 | head -15
+top -bn1 | grep "Cpu(s)" | awk '{printf "CPU usage: %.1f%%\n", 100 - $8}'
+mpstat -P ALL 1 1
+ps aux --sort=-%cpu | head -6
+```
+
+## 3. Memory (RAM)
+
+```bash
+free -h
+free | awk '/Mem/ {printf "Memory used: %.1f%%\n", $3/$2 * 100}'
+swapon --show
+ps aux --sort=-%mem | head -6
+vmstat 1 3
+```
+
+## 4. Disk / Volume
+
+```bash
+df -h -x tmpfs -x devtmpfs
+lsblk
+du -sh /var/* 2>/dev/null | sort -rh | head -10
+iostat -x 1 3
+```
+
+## 5. Network
+
+```bash
+ip -br addr
+ss -tulpn
+ip -s link
+ping -c 4 8.8.8.8
+dig google.com +short
+```
+
+## 6. Interactive Tools
+
+These take over the terminal. Press `q` to quit.
+
+```bash
+htop
+btop
+glances
+sudo iotop
+sudo nethogs
+sudo iftop
+```
+
+## 7. Install Optional Tools (Debian/Ubuntu)
+
+```bash
+sudo apt install -y sysstat htop btop iotop nethogs iftop dnsutils
+```
+
+For RHEL/Fedora, use `sudo dnf install -y sysstat htop iotop nethogs iftop bind-utils`.
+
+
+
+Thresholds: 80% CPU, 80% memory, 85% disk. Edit the numbers at the bottom to change them.
+
+### Save output to a log file
+
+```bash
+( <paste the block above here> ) 2>&1 | tee syscheck-$(date +%F).log
+```
