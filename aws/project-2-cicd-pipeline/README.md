@@ -648,6 +648,8 @@ and try again.
 * ~~Set a minimum coverage percentage threshold in the CI test job once the current baseline is established~~ ✅ Complete
 * ~~Add an integration test for graceful shutdown on `SIGTERM`~~ ✅ Complete
 * ~~Add a slow test endpoint to verify in-flight requests finish draining during `SIGTERM`~~ ✅ Complete
+* ~~Add a load test script to drive CPU and verify ECS service autoscaling works~~ ✅ Complete
+* ~~Add autoscaling to the ECS service and verify it works with the load test script~~ ✅ Complete
 * Add an Application Load Balancer and a stable DNS name
 * ~~Add lifecycle policies to the ECR repository to clean up old images~~ ✅ Complete
 * Try blue/green deployments with CodeDeploy
