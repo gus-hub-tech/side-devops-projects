@@ -105,6 +105,36 @@ variable "desired_count" {
   default     = 1
 }
 
+variable "autoscaling_min_capacity" {
+  description = "Minimum task count for Application Auto Scaling"
+  type        = number
+  default     = 1
+}
+
+variable "autoscaling_max_capacity" {
+  description = "Maximum task count for Application Auto Scaling"
+  type        = number
+  default     = 3
+}
+
+variable "autoscaling_cpu_target" {
+  description = "Target average CPU utilization (percent) for target tracking"
+  type        = number
+  default     = 70
+}
+
+variable "autoscaling_scale_out_cooldown" {
+  description = "Seconds before another scale-out activity is allowed"
+  type        = number
+  default     = 60
+}
+
+variable "autoscaling_scale_in_cooldown" {
+  description = "Seconds before another scale-in activity is allowed"
+  type        = number
+  default     = 60
+}
+
 variable "environment" {
   description = "ENVIRONMENT value passed to the container"
   type        = string

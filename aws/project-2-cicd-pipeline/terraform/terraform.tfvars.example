@@ -19,6 +19,13 @@ memory                     = "512"
 desired_count              = 1
 environment                = "production"
 
+# Application Auto Scaling (matches the target/policy created in the console).
+autoscaling_min_capacity       = 1
+autoscaling_max_capacity       = 3
+autoscaling_cpu_target         = 70
+autoscaling_scale_out_cooldown = 60
+autoscaling_scale_in_cooldown  = 60
+
 # Image tag used for the initial task definition. The registry and repository
 # are derived from the account, region, and ecr_repository_name above, so no
 # account ID needs to be stored here. Defaults to the tag that was live when
