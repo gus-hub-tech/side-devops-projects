@@ -67,3 +67,15 @@ import {
   to = aws_iam_user_policy_attachment.github_ecr
   id = "${var.github_actions_user_name}/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess"
 }
+
+# Application Auto Scaling was configured by hand in the console (2026-11-24).
+# These adopt the scalable target and its CPU target-tracking policy.
+import {
+  to = aws_appautoscaling_target.webapp
+  id = "ecs/service/${var.cluster_name}/${var.service_name}/ecs:service:DesiredCount"
+}
+
+import {
+  to = aws_appautoscaling_policy.webapp_cpu
+  id = "ecs/service/${var.cluster_name}/${var.service_name}/ecs:service:DesiredCount/Target-tracking-auto scaling-policy"
+}
