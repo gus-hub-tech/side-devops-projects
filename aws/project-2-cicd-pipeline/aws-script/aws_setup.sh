@@ -12,6 +12,14 @@ AWS_REGION="${AWS_REGION:-af-south-1}"
 VPC_NAME="${VPC_NAME:-projects-vpc}"
 GITHUB_USER_NAME="${GITHUB_USER_NAME:-github-actions-user}"
 
+# Application Auto Scaling (matches the live target/policy)
+AUTOSCALING_MIN="${AUTOSCALING_MIN:-1}"
+AUTOSCALING_MAX="${AUTOSCALING_MAX:-3}"
+AUTOSCALING_CPU_TARGET="${AUTOSCALING_CPU_TARGET:-70}"
+AUTOSCALING_SCALE_OUT_COOLDOWN="${AUTOSCALING_SCALE_OUT_COOLDOWN:-60}"
+AUTOSCALING_SCALE_IN_COOLDOWN="${AUTOSCALING_SCALE_IN_COOLDOWN:-60}"
+AUTOSCALING_POLICY_NAME="${AUTOSCALING_POLICY_NAME:-Target-tracking-auto scaling-policy}"
+
 echo "=========================================="
 echo "Setting up AWS infrastructure for CI/CD"
 echo "=========================================="
@@ -41,6 +49,57 @@ else
         --image-scanning-configuration scanOnPush=true
     echo "✅ ECR repository created"
 fi
+
+# 1b. Apply the ECR lifecycle policy (matches terraform/ecr.tf)
+echo "🧹 Applying ECR lifecycle policy..."
+ECR_TAGGED_IMAGE_COUNT="${ECR_TAGGED_IMAGE_COUNT:-1}"
+ECR_UNTAGGED_IMAGE_COUNT="${ECR_UNTAGGED_IMAGE_COUNT:-1}"
+
+if [ "$ECR_TAGGED_IMAGE_COUNT" -eq 1 ]; then
+    TAGGED_LABEL="image"
+else
+    TAGGED_LABEL="images"
+fi
+if [ "$ECR_UNTAGGED_IMAGE_COUNT" -eq 1 ]; then
+    UNTAGGED_LABEL="image"
+else
+    UNTAGGED_LABEL="images"
+fi
+
+LIFECYCLE_POLICY=$(cat <<EOF
+{
+  "rules": [
+    {
+      "rulePriority": 1,
+      "description": "Keep the $ECR_TAGGED_IMAGE_COUNT most recent tagged $TAGGED_LABEL",
+      "selection": {
+        "tagStatus": "tagged",
+        "tagPatternList": ["*"],
+        "countType": "imageCountMoreThan",
+        "countNumber": $ECR_TAGGED_IMAGE_COUNT
+      },
+      "action": { "type": "expire" }
+    },
+    {
+      "rulePriority": 2,
+      "description": "Keep the $ECR_UNTAGGED_IMAGE_COUNT most recent untagged $UNTAGGED_LABEL",
+      "selection": {
+        "tagStatus": "untagged",
+        "countType": "imageCountMoreThan",
+        "countNumber": $ECR_UNTAGGED_IMAGE_COUNT
+      },
+      "action": { "type": "expire" }
+    }
+  ]
+}
+EOF
+)
+
+aws ecr put-lifecycle-policy \
+    --repository-name "$ECR_REPOSITORY" \
+    --region "$AWS_REGION" \
+    --lifecycle-policy-text "$LIFECYCLE_POLICY" >/dev/null
+echo "✅ ECR lifecycle policy applied"
 
 # Get ECR repository URI
 ECR_URI=$(aws ecr describe-repositories \
@@ -264,6 +323,35 @@ else
         --region $AWS_REGION >/dev/null
     echo "✅ ECS service created"
 fi
+
+# 8b. Configure Application Auto Scaling (matches terraform/autoscaling.tf)
+echo "📈 Configuring ECS service autoscaling..."
+aws application-autoscaling register-scalable-target \
+    --service-namespace ecs \
+    --resource-id "service/$CLUSTER_NAME/$SERVICE_NAME" \
+    --scalable-dimension ecs:service:DesiredCount \
+    --min-capacity "$AUTOSCALING_MIN" \
+    --max-capacity "$AUTOSCALING_MAX" \
+    --region "$AWS_REGION" >/dev/null
+
+aws application-autoscaling put-scaling-policy \
+    --service-namespace ecs \
+    --resource-id "service/$CLUSTER_NAME/$SERVICE_NAME" \
+    --scalable-dimension ecs:service:DesiredCount \
+    --policy-name "$AUTOSCALING_POLICY_NAME" \
+    --policy-type TargetTrackingScaling \
+    --target-tracking-scaling-policy-configuration "{
+        \"TargetValue\": $AUTOSCALING_CPU_TARGET,
+        \"PredefinedMetricSpecification\": {
+            \"PredefinedMetricType\": \"ECSServiceAverageCPUUtilization\"
+        },
+        \"ScaleOutCooldown\": $AUTOSCALING_SCALE_OUT_COOLDOWN,
+        \"ScaleInCooldown\": $AUTOSCALING_SCALE_IN_COOLDOWN,
+        \"DisableScaleIn\": false
+    }" \
+    --region "$AWS_REGION" >/dev/null
+
+echo "✅ Autoscaling: min $AUTOSCALING_MIN, max $AUTOSCALING_MAX, CPU target ${AUTOSCALING_CPU_TARGET}%"
 
 # 9. Create IAM user for GitHub Actions
 echo "👤 Creating GitHub Actions IAM user..."
