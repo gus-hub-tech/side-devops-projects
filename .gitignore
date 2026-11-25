@@ -28,6 +28,10 @@ task-definition.json
 .env.*
 !.env.example
 
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+
 # Test / coverage output
 coverage/
 
