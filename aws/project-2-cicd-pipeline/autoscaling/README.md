@@ -99,7 +99,7 @@ Done.  OK: 269836  Errors: 0
   10–15 minutes when you want a comfortable margin.
 - **Only one task receives load.** The script targets a single IP. When the
   service scales to 3, the average CPU becomes roughly one task at 100% and two
-  near 0% (~33%). That stays above a 15% target, but with a higher target
+  near 0% (~33%). That stays above a 70% target, but with a higher target
   (e.g. 60%) it would look like the service is under-utilized and the policy
   could scale back in. To keep every task busy, run the script once per task IP.
 - **Scale-in is not instant.** After the load ends, CPU drops immediately, but
