@@ -2,26 +2,44 @@
 
 ## `load_test.py`
 
-A dependency-free Python load generator that drives CPU on the ECS task so the
-service's CPU-based autoscaling policy can scale it out.
+A dependency-free Python load generator that drives CPU on the ECS service so
+its CPU-based autoscaling policy can scale it out.
 
-There is no load balancer in this project: the task is reached directly on port
-3001 through its public IP, and ECS service CPU is measured inside the task's
-cgroup. So the load has to hit the app itself — traffic from CloudShell or an
-EC2 instance does not move `ECSServiceAverageCPUUtilization` unless it reaches
-the task.
+Traffic goes through the **Application Load Balancer**, which spreads requests
+across every healthy task. That matters for a scale-out test: as ECS adds
+tasks, the ALB sends each one work automatically, so no per-task IP juggling is
+needed when tasks are replaced.
 
 ### What it does
 
-- Starts `THREADS` worker threads.
+- Starts `THREADS` worker threads against the ALB URL.
 - Each worker requests `TARGET_URL` (`/`, the dashboard — heavier than
   `/health`, so it burns more CPU per request) with a 5s timeout, then sleeps
   `INTERVAL` seconds.
 - Counts successes and errors and prints a progress line every 5 seconds.
-- Stops every worker after `DURATION` seconds and prints the totals.
+- Prints milestone lines at 1, 3, 5 and 8 minutes so a redirected log still
+  shows that the load stayed up.
+- Runs for 10 minutes by default, then stops every worker and prints totals.
 
 Only the Python standard library is used (`threading`, `time`,
 `urllib.request`), so nothing needs installing.
+
+### Why it must run for several minutes
+
+The 30% target-tracking policy does **not** react to a single spike:
+
+1. Average CPU must stay above **30% for 3 consecutive 1-minute periods**
+   before the CloudWatch alarm fires.
+2. ECS then provisions a new task and waits for it to pass health checks
+   (~60–90s more).
+
+So the first new task shows up roughly **3 minutes after sustained load
+starts**, and the service needs load to keep going after that. A previous run
+stopped after ~6 minutes and the load fell off just as scaling should have
+happened, so the alarm reset and nothing scaled.
+
+**Do not stop the script early.** If it exits before the alarm has seen three
+breaching periods, `desiredCount` will not change.
 
 ### Configuration
 
@@ -29,28 +47,26 @@ Edit the constants at the top of `load_test.py`:
 
 | Constant | Default | Meaning |
 | --- | --- | --- |
-| `TARGET_URL` | `http://13.245.179.127:3001/` | Task public IP and port |
-| `THREADS` | `50` | Concurrent workers |
-| `DURATION` | `300` | Seconds to run |
-| `INTERVAL` | `0.05` | Sleep between requests per worker |
+| `TARGET_URL` | ALB DNS name | Stable ALB endpoint (unlike a task public IP) |
+| `THREADS` | `100` | Concurrent workers — held CPU at 63–66% on one task |
+| `DURATION` | `600` | Seconds to run (10 min); keep at 300+ or the alarm may not fire |
+| `INTERVAL` | `0.02` | Sleep between requests per worker |
+| `MIN_DURATION` | `300` | Prints a warning if `DURATION` is set below this |
 
-`TARGET_URL` is hardcoded to one task, so update it whenever the task is
-replaced (deploy, restart, or a scale event) — the public IP changes. To find
-the current one:
+`THREADS = 100` is more than enough to cross 30%. If CPU only reached ~63–66%
+on one task, it will still be well above the threshold while the service is at
+one or two tasks.
+
+```python
+TARGET_URL = "http://webapp-cicd-loadbalancer-1259148409.af-south-1.elb.amazonaws.com/"
+```
+
+The ALB DNS name is stable across deployments. You only need to change it if
+the load balancer itself is recreated. Find the current one with:
 
 ```sh
-TASK=$(aws ecs list-tasks --cluster webapp-cicd-cluster \
-  --service-name webapp-cicd-service --desired-status RUNNING \
-  --region af-south-1 --query 'taskArns[0]' --output text)
-
-ENI=$(aws ecs describe-tasks --cluster webapp-cicd-cluster --tasks "$TASK" \
-  --region af-south-1 \
-  --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value | [0]' \
-  --output text)
-
-aws ec2 describe-network-interfaces --network-interface-ids "$ENI" \
-  --region af-south-1 \
-  --query 'NetworkInterfaces[0].Association.PublicIp' --output text
+aws elbv2 describe-load-balancers --region af-south-1 \
+  --query 'LoadBalancers[].DNSName' --output text
 ```
 
 ### Running it
@@ -60,55 +76,65 @@ cd autoscaling
 python3 load_test.py
 ```
 
-Progress is printed on one line (carriage return), so a redirected log needs
-`tr` to read it line by line:
+To log a full run while still seeing it live:
+
+```sh
+python3 -u load_test.py 2>&1 | tee /tmp/load_test.log
+```
+
+If you redirect without `tee`, progress is written on one line (carriage
+return), so convert it before reading:
 
 ```sh
 python3 -u load_test.py > /tmp/load_test.log 2>&1
 tr '\r' '\n' < /tmp/load_test.log | tail
 ```
 
-### Measured result
+In a second terminal, watch the task count change. The ECS console's **Tasks**
+tab shows the same thing:
 
-Run against a task with `cpu = 256` (0.25 vCPU), 70% CPU target, 1 → 3 task
-range:
-
-```
-Starting load test → http://13.245.179.127:3001/
-50 threads for 300s
-
-[   0s]  OK:      34  Errors:     0
-[  20s]  OK:   16071  Errors:     0
-[ 200s]  OK:  178881  Errors:     0
-[ 295s]  OK:  265276  Errors:     0
-
-Done.  OK: 269836  Errors: 0
+```sh
+watch -n 10 "aws ecs describe-services --cluster webapp-cicd-cluster \
+  --service webapp-cicd-service --region af-south-1 \
+  --query 'services[0].[desiredCount,runningCount]' --output text"
 ```
 
-- **269,836 requests in 300s ≈ 900 req/s**, zero errors.
-- CPU stayed high enough for the policy to act: ECS logged
-  `has started 2 tasks` and `desiredCount` went **1 → 3**.
-- The two new tasks reached `RUNNING`; the deployment reported `COMPLETED`.
+### What to expect
+
+With `THREADS = 100` and the 30% target:
+
+- CPU climbs to roughly **63–66%** on a single task — comfortably above 30%.
+- The scale-out alarm fires after **3 consecutive 1-minute periods**; task 2
+  starts around the **3-minute mark**.
+- ECS brings task 2 to `RUNNING`/healthy about **1–2 minutes later**.
+- The ALB then sends load to both tasks, so **average service CPU drops**. If
+  it falls below 30%, the policy may scale in again. That is normal
+  target-tracking behaviour, not a failed test: the same load is now spread
+  over more tasks. Raise `THREADS` if you want to hold three tasks above 30%.
+
+Watch for these in the ECS service events:
+
+```
+service webapp-cicd-service has started 2 tasks: ...
+(service webapp-cicd-service) was unable to place a task ...
+```
 
 ### Notes and caveats
 
-- **300 seconds is marginal.** In the run above the scale-out was recorded
-  ~19 seconds *after* the load stopped — it only fired because the last
-  one-minute CPU datapoint was still high. Target tracking needs a few
-  consecutive breaching datapoints plus time to start tasks, so give the load
-  10–15 minutes when you want a comfortable margin.
-- **Only one task receives load.** The script targets a single IP. When the
-  service scales to 3, the average CPU becomes roughly one task at 100% and two
-  near 0% (~33%). That stays above a 70% target, but with a higher target
-  (e.g. 60%) it would look like the service is under-utilized and the policy
-  could scale back in. To keep every task busy, run the script once per task IP.
+- **30% is the live policy target.** `terraform/` still defaults
+  `autoscaling_cpu_target` to `70`, so if the target was changed in the
+  console without updating `terraform.tfvars`, a later `terraform apply`
+  will put it back to 70%. Keep the two in sync.
 - **Scale-in is not instant.** After the load ends, CPU drops immediately, but
   `desiredCount` returns to 1 only after the scale-in cooldown and evaluation
-  window. The task keeps running (and billing) during that time.
+  window. The extra task keeps running (and billing) during that time.
+- **Average CPU falls as tasks are added.** Service CPU is the average across
+  tasks, not the busiest task. Scaling out can therefore bring the metric back
+  under the target and trigger scale-in. More threads (more load) is the fix
+  when you want to keep the maximum task count up.
 - **Autoscaling must exist.** This script only creates load. If no
   Application Auto Scaling target/policy is registered for the service,
-  `desiredCount` will not change. The policy is not defined in `terraform/`;
-  if it was created in the console it lives outside Terraform's state.
+  `desiredCount` will not change.
 
 ## Files
 
