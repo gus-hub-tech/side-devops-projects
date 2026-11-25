@@ -17,6 +17,7 @@ pipeline run replaces that image with the real app.
 | # | Resource | Default name / value | Reused if it already exists? |
 | --- | --- | --- | --- |
 | 1 | Amazon ECR repository | `my-webapp` | Yes (`scanOnPush=true`) |
+| 1b | ECR lifecycle policy | keep 1 tagged + 1 untagged image | Yes — `put-lifecycle-policy` updates in place |
 | 2 | ECS task execution role | `ecsTaskExecutionRole-webapp-cicd-cluster` | Yes |
 | 3 | ECS Fargate cluster | `webapp-cicd-cluster` | Yes |
 | 4 | VPC & subnets | existing `projects-vpc` | Always existing (never created) |
@@ -24,6 +25,7 @@ pipeline run replaces that image with the real app.
 | 6 | CloudWatch log group | `/ecs/webapp-cicd-task` | Yes |
 | 7 | ECS task definition | family `webapp-cicd-task` | No — a **new revision** each run |
 | 8 | ECS service | `webapp-cicd-service` | Yes |
+| 8b | Application Auto Scaling | CPU target 70%, min 1, max 3, 60s cooldowns | Yes — target/policy updated in place |
 | 9 | GitHub Actions IAM user | `github-actions-user` | Yes (new keys attempted each run) |
 
 The script deliberately does **not** create a load balancer, a custom domain, or
@@ -83,6 +85,14 @@ bash -x aws_setup.sh
 | `SERVICE_NAME` | `webapp-cicd-service` | ECS service name |
 | `TASK_FAMILY` | `webapp-cicd-task` | ECS task definition family and log group suffix |
 | `ECR_REPOSITORY` | `my-webapp` | Docker image repository name |
+| `ECR_TAGGED_IMAGE_COUNT` | `1` | Tagged images kept by the lifecycle policy |
+| `ECR_UNTAGGED_IMAGE_COUNT` | `1` | Untagged images kept by the lifecycle policy |
+| `AUTOSCALING_MIN` | `1` | Minimum task count for Application Auto Scaling |
+| `AUTOSCALING_MAX` | `3` | Maximum task count |
+| `AUTOSCALING_CPU_TARGET` | `70` | Target average CPU utilization (percent) |
+| `AUTOSCALING_SCALE_OUT_COOLDOWN` | `60` | Seconds between scale-out activities |
+| `AUTOSCALING_SCALE_IN_COOLDOWN` | `60` | Seconds between scale-in activities |
+| `AUTOSCALING_POLICY_NAME` | `Target-tracking-auto scaling-policy` | Policy name (matches the live policy) |
 | `AWS_REGION` | `af-south-1` | Region for all resources (IAM is global) |
 | `VPC_NAME` | `projects-vpc` | `Name` tag used to find an existing VPC and public subnets |
 | `GITHUB_USER_NAME` | `github-actions-user` | IAM user whose keys are used by GitHub Actions |
@@ -96,6 +106,8 @@ bash -x aws_setup.sh
 
 2. **ECR repository** — creates the repository with image scanning on push, then
    reads back its `repositoryUri` (printed as `ECR_REGISTRY` at the end).
+   It then applies the lifecycle policy (the same JSON as `terraform/ecr.tf`):
+   keep the most recent tagged and untagged image, expire the rest.
 
 3. **ECS task execution role** — creates `ecsTaskExecutionRole-$CLUSTER_NAME`
    with an `ecs-tasks.amazonaws.com` trust policy and attaches the managed
@@ -122,6 +134,10 @@ bash -x aws_setup.sh
 
 9. **ECS service** — creates the service with `desired-count 1`, launch type
    `FARGATE`, and `assignPublicIp=ENABLED` so the task is reachable directly.
+   It then registers the Application Auto Scaling target (`min 1`, `max 3`,
+   `ecs:service:DesiredCount`) and a target-tracking policy on
+   `ECSServiceAverageCPUUtilization` at `70%` with 60s scale-out/scale-in
+   cooldowns — matching the live console setup and `terraform/autoscaling.tf`.
 
 10. **GitHub Actions IAM user** — creates the user (if missing) with the
     `AmazonECS_FullAccess` and `AmazonEC2ContainerRegistryFullAccess` managed
@@ -135,7 +151,8 @@ bash -x aws_setup.sh
 
 The script is written to be idempotent for named resources: existing ECR
 repositories, roles, clusters, security groups, log groups, services, and users
-are detected and reused.
+are detected and reused. The ECR lifecycle policy and the autoscaling target and
+policy are re-applied on every run and updated in place.
 
 Two things are **not** fully idempotent:
 
