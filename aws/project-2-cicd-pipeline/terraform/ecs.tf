@@ -78,7 +78,9 @@ resource "aws_ecs_service" "webapp" {
   availability_zone_rebalancing = "ENABLED"
 
   lifecycle {
-    # The CI deploy job owns task definition revisions.
-    ignore_changes = [task_definition]
+    # The CI deploy job owns task definition revisions, and Application Auto
+    # Scaling owns desired_count. Without this, every apply would reset the
+    # count the scaler just changed.
+    ignore_changes = [task_definition, desired_count]
   }
 }
