@@ -21,16 +21,22 @@ pipeline run replaces that image with the real app.
 | 2 | ECS task execution role | `ecsTaskExecutionRole-webapp-cicd-cluster` | Yes |
 | 3 | ECS Fargate cluster | `webapp-cicd-cluster` | Yes |
 | 4 | VPC & subnets | existing `projects-vpc` | Always existing (never created) |
-| 5 | Security group | `webapp-cicd-sg` | Yes |
+| 5 | Security group | `webapp-cicd-sg` | Yes (ingress rules 80 and 3001 ensured) |
+| 5b | ALB target group | `webapp-cicd-target-group` | Yes |
+| 5b | Internet-facing ALB | `webapp-cicd-loadbalancer` | Yes |
+| 5b | HTTP listener | port `80` -> target group | Yes (repointed if needed) |
 | 6 | CloudWatch log group | `/ecs/webapp-cicd-task` | Yes |
 | 7 | ECS task definition | family `webapp-cicd-task` | No — a **new revision** each run |
-| 8 | ECS service | `webapp-cicd-service` | Yes |
-| 8b | Application Auto Scaling | CPU target 70%, min 1, max 3, 60s cooldowns | Yes — target/policy updated in place |
+| 8 | ECS service | `webapp-cicd-service` | Yes (attached to the target group if needed) |
+| 8b | Application Auto Scaling | CPU target 30%, min 1, max 3, 60s cooldowns | Yes — target/policy updated in place |
 | 9 | GitHub Actions IAM user | `github-actions-user` | Yes (new keys attempted each run) |
 
-The script deliberately does **not** create a load balancer, a custom domain, or
-a database. The Fargate task gets a public IP and the app is reached directly on
-port `3001`, so the URL changes whenever ECS replaces the task.
+The stable app URL is the ALB DNS name on port `80`. The Fargate task also keeps
+a public IP and port `3001` is still open, so direct access works too. The two
+Elastic IPs visible in the console (`webapp-cicd-loadbalancer-az1` and `-az2`)
+are **service-managed by the ALB**: AWS allocates one per public subnet when the
+ALB is created and releases them when it is deleted. They are not separate
+resources to create in this script (or import in Terraform).
 
 ---
 
@@ -87,9 +93,18 @@ bash -x aws_setup.sh
 | `ECR_REPOSITORY` | `my-webapp` | Docker image repository name |
 | `ECR_TAGGED_IMAGE_COUNT` | `1` | Tagged images kept by the lifecycle policy |
 | `ECR_UNTAGGED_IMAGE_COUNT` | `1` | Untagged images kept by the lifecycle policy |
+| `CONTAINER_PORT` | `3001` | Task/ALB target group port |
+| `ALB_NAME` | `webapp-cicd-loadbalancer` | Internet-facing ALB name |
+| `TARGET_GROUP_NAME` | `webapp-cicd-target-group` | ALB target group name |
+| `ALB_PORT` | `80` | Public listener port |
+| `HEALTH_CHECK_PATH` | `/` | Target group health check path |
+| `HEALTH_CHECK_INTERVAL` | `30` | Health check interval in seconds |
+| `HEALTH_CHECK_TIMEOUT` | `5` | Health check timeout in seconds |
+| `HEALTHY_THRESHOLD` | `5` | Consecutive successes to become healthy |
+| `UNHEALTHY_THRESHOLD` | `2` | Consecutive failures to become unhealthy |
 | `AUTOSCALING_MIN` | `1` | Minimum task count for Application Auto Scaling |
 | `AUTOSCALING_MAX` | `3` | Maximum task count |
-| `AUTOSCALING_CPU_TARGET` | `70` | Target average CPU utilization (percent) |
+| `AUTOSCALING_CPU_TARGET` | `30` | Target average CPU utilization (percent; matches the live policy) |
 | `AUTOSCALING_SCALE_OUT_COOLDOWN` | `60` | Seconds between scale-out activities |
 | `AUTOSCALING_SCALE_IN_COOLDOWN` | `60` | Seconds between scale-in activities |
 | `AUTOSCALING_POLICY_NAME` | `Target-tracking-auto scaling-policy` | Policy name (matches the live policy) |
@@ -121,25 +136,36 @@ bash -x aws_setup.sh
    `<VPC_NAME>-subnet-public*`, falling back to *all* subnets in the VPC.
    Subnet IDs are joined into the comma-separated list ECS expects.
 
-6. **Security group** — finds or creates `webapp-cicd-sg` in the selected VPC.
-   On creation it adds a single inbound rule: TCP `3001` from `0.0.0.0/0`.
+6. **Security group** — finds or creates `webapp-cicd-sg` in the selected VPC
+   and ensures inbound TCP `80` (ALB listener) and `3001` (task port) from
+   `0.0.0.0/0`. The ALB and the tasks share this group.
 
-7. **CloudWatch log group** — creates `/ecs/$TASK_FAMILY` if it is missing.
+7. **ALB, target group, and listener** — creates an IP target group on port
+   `3001` with an HTTP health check at `/` (200 = healthy), an internet-facing
+   application load balancer in the public subnets using the webapp security
+   group, and an HTTP listener on port `80` forwarding to the target group.
+   Existing resources are reused; an existing listener is repointed if it
+   forwards to a different target group. AWS automatically allocates the ALB's
+   two service-managed Elastic IPs, one per subnet/AZ.
+
+8. **CloudWatch log group** — creates `/ecs/$TASK_FAMILY` if it is missing.
    Container stdout is sent here via the `awslogs` driver.
 
-8. **Task definition** — registers a new Fargate revision (`awsvpc`, `256` CPU
+9. **Task definition** — registers a new Fargate revision (`awsvpc`, `256` CPU
    units, `512` MiB) with one container named `webapp`, port `3001`,
    `ENVIRONMENT=production`, and the `awslogs` configuration. The image is the
    `nginx:latest` placeholder.
 
-9. **ECS service** — creates the service with `desired-count 1`, launch type
-   `FARGATE`, and `assignPublicIp=ENABLED` so the task is reachable directly.
-   It then registers the Application Auto Scaling target (`min 1`, `max 3`,
+10. **ECS service** — creates the service with `desired-count 1`, launch type
+   `FARGATE`, `assignPublicIp=ENABLED`, AZ rebalancing enabled, and a
+   `load-balancers` entry pointing at the target group. If the service already
+   exists but is not attached to that target group, `update-service` attaches
+   it. It then registers the Application Auto Scaling target (`min 1`, `max 3`,
    `ecs:service:DesiredCount`) and a target-tracking policy on
-   `ECSServiceAverageCPUUtilization` at `70%` with 60s scale-out/scale-in
+   `ECSServiceAverageCPUUtilization` at `30%` with 60s scale-out/scale-in
    cooldowns — matching the live console setup and `terraform/autoscaling.tf`.
 
-10. **GitHub Actions IAM user** — creates the user (if missing) with the
+11. **GitHub Actions IAM user** — creates the user (if missing) with the
     `AmazonECS_FullAccess` and `AmazonEC2ContainerRegistryFullAccess` managed
     policies, then attempts to create an access key. Keys are parsed with `jq`;
     if AWS refuses (for example, the user already has the maximum of two keys),
@@ -150,9 +176,16 @@ bash -x aws_setup.sh
 ## 🔁 Re-running the Script
 
 The script is written to be idempotent for named resources: existing ECR
-repositories, roles, clusters, security groups, log groups, services, and users
-are detected and reused. The ECR lifecycle policy and the autoscaling target and
-policy are re-applied on every run and updated in place.
+repositories, roles, clusters, security groups, log groups, services, users,
+ALB, target group, and listener are detected and reused. The ECR lifecycle
+policy and the autoscaling target and policy are re-applied on every run and
+updated in place.
+
+The ALB is expected to be deleted and recreated regularly. Only its stable
+names (`ALB_NAME`, `TARGET_GROUP_NAME`, `ALB_PORT`) are configured; no ARN,
+allocation ID, or DNS name is cached, so the next run simply creates whatever is
+missing (or attaches an existing service to the new target group). The ALB's
+Elastic IPs are service-managed and return with the new load balancer.
 
 Two things are **not** fully idempotent:
 
@@ -163,8 +196,10 @@ Two things are **not** fully idempotent:
   most two keys per user; once the limit is reached the script prints
   placeholder values and asks you to reuse or rotate existing keys.
 
-Also note that the inbound `3001` rule is only added when the security group is
-first created; an existing group is assumed to already be configured.
+The security group rules for `80` and `3001` are now ensured on every run, so an
+older group that only had `3001` is repaired. The ALB target group, load
+balancer, listener, and service/target-group association are also checked and
+reused or corrected on each run.
 
 ---
 
@@ -183,6 +218,9 @@ variables → Actions** in the GitHub repository:
 | `ECS_SERVICE` | The ECS service name |
 | `ECS_TASK_DEFINITION` | The task definition family |
 
+The script also prints the stable `http://<alb-dns>/` URL and health check URL;
+these are informational, not GitHub secrets.
+
 > ⚠️ The secret access key is printed to the terminal in plain text. Treat the
 > output as sensitive: do not paste it into logs or issues, and store it only as
 > an encrypted GitHub Actions secret.
@@ -191,9 +229,10 @@ variables → Actions** in the GitHub repository:
 
 ## ⚠️ Security and Cost Notes
 
-* The security group opens port `3001` to `0.0.0.0/0`. This is convenient for a
-  learning project but not appropriate for sensitive workloads; restrict the
-  CIDR or put an ALB in front of the service for production use.
+* The security group opens ports `80` and `3001` to `0.0.0.0/0`, and it is shared
+  by the ALB and the tasks. This is convenient for a learning project but not
+  appropriate for sensitive workloads; use a dedicated ALB security group and
+  allow only the ALB to reach port `3001` in production.
 * The GitHub Actions user receives broad managed policies (`ECS` and `ECR`
   full access). Scope these down for longer-lived environments.
 * Fargate and ECR can incur small charges while the stack runs. Use the cleanup
