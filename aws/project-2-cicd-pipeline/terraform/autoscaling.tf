@@ -6,7 +6,8 @@
 #
 #   target:  min 1, max 3, dimension ecs:service:DesiredCount
 #   policy:  target tracking on ECSServiceAverageCPUUtilization
-#            target 70%, scale-out cooldown 60s, scale-in cooldown 60s
+#            target 30% (changed during load testing on 2026-11-25),
+#            scale-out cooldown 60s, scale-in cooldown 60s
 #
 # Application Auto Scaling creates the CloudWatch alarms itself; they are not
 # Terraform resources. As observed in the account:
