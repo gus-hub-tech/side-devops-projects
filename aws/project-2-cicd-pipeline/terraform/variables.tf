@@ -39,6 +39,30 @@ variable "ecr_repository_name" {
   default     = "my-webapp"
 }
 
+variable "alb_name" {
+  description = "Name of the internet-facing Application Load Balancer"
+  type        = string
+  default     = "webapp-cicd-loadbalancer"
+}
+
+variable "target_group_name" {
+  description = "Name of the ALB target group registered with the ECS service"
+  type        = string
+  default     = "webapp-cicd-target-group"
+}
+
+variable "alb_port" {
+  description = "Port the ALB listener accepts traffic on"
+  type        = number
+  default     = 80
+}
+
+variable "health_check_path" {
+  description = "Path the ALB uses to health check ECS tasks"
+  type        = string
+  default     = "/"
+}
+
 variable "ecr_tagged_image_count" {
   description = "Number of most recent commit-SHA tagged ECR images to keep"
   type        = number
@@ -78,7 +102,7 @@ variable "github_actions_user_name" {
 variable "container_image_tag" {
   description = "Image tag for the initial task definition. The repository URI is derived from the account, region, and ECR repository name. Defaults to the tag that was live when the stack was adopted; the CI deploy job registers later revisions."
   type        = string
-  default     = "8b63159c311665f253285ee6aeb0bc4bc5a75612"
+  default     = "8ff5431c958156f95dfc470762fa58d8e7dc99ea"
 }
 
 variable "container_port" {
@@ -120,7 +144,8 @@ variable "autoscaling_max_capacity" {
 variable "autoscaling_cpu_target" {
   description = "Target average CPU utilization (percent) for target tracking"
   type        = number
-  default     = 70
+  # The live policy was changed to 30% during load testing (2026-11-25).
+  default = 30
 }
 
 variable "autoscaling_scale_out_cooldown" {
