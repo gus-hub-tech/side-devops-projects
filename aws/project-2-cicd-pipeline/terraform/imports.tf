@@ -4,9 +4,10 @@
 # imported instead of created. `terraform apply` records them in state. After
 # that, the import blocks are no-ops and can stay in the configuration.
 #
-# The ECS task definition is imported at the revision that was live when this
-# configuration was written. If the CI deploy job has already registered a
-# newer revision, update :14 below to the revision Terraform should adopt.
+# The ECS task definition is imported at the revision that is live when this
+# configuration is written (:25 on 2026-11-25). If CI registers a newer
+# revision later, update the revision below to the one Terraform should adopt.
+# Revisions registered by CI after adoption stay outside Terraform state.
 
 import {
   to = aws_ecr_repository.webapp
@@ -45,13 +46,21 @@ import {
 
 import {
   to = aws_ecs_task_definition.webapp
-  id = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.task_family}:14"
+  id = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.task_family}:25"
 }
 
 import {
   to = aws_ecs_service.webapp
   id = "${var.cluster_name}/${var.service_name}"
 }
+
+# The ALB, target group, and listener are deliberately NOT imported here.
+# They are deleted and recreated regularly, and their ARNs contain random
+# suffixes that change on every recreation. Identity is the stable name in
+# variables.tf (alb_name / target_group_name), used by alb.tf and by
+# aws_setup.sh. If the ALB is removed out of band, a normal `terraform apply`
+# creates fresh resources and reattaches the ECS service; no import IDs need
+# editing. The ALB's Elastic IPs are service-managed and come back with it.
 
 import {
   to = aws_iam_user.github_actions
