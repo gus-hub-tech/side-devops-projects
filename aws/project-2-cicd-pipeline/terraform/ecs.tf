@@ -64,6 +64,14 @@ resource "aws_ecs_service" "webapp" {
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
+  # The service registers each task's IP in the ALB target group. Without this
+  # block a Terraform apply would detach the live target group from the service.
+  load_balancer {
+    target_group_arn = aws_lb_target_group.webapp.arn
+    container_name   = local.container_name
+    container_port   = local.app_port
+  }
+
   network_configuration {
     subnets          = data.aws_subnets.public.ids
     security_groups  = [aws_security_group.webapp.id]
