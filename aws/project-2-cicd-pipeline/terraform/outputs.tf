@@ -55,7 +55,27 @@ output "github_actions_user_name" {
   value       = aws_iam_user.github_actions.name
 }
 
+output "alb_dns_name" {
+  description = "Stable public DNS name of the Application Load Balancer"
+  value       = aws_lb.webapp.dns_name
+}
+
+output "alb_arn" {
+  description = "ARN of the Application Load Balancer"
+  value       = aws_lb.webapp.arn
+}
+
+output "target_group_arn" {
+  description = "ALB target group the ECS service registers tasks in"
+  value       = aws_lb_target_group.webapp.arn
+}
+
+output "app_url" {
+  description = "Stable URL for the app (through the ALB)"
+  value       = "http://${aws_lb.webapp.dns_name}"
+}
+
 output "app_url_hint" {
   description = "How to find the app URL after deployment"
-  value       = "aws ecs list-tasks --cluster ${aws_ecs_cluster.main.name} --service-name ${aws_ecs_service.webapp.name} --region ${var.aws_region}"
+  value       = "aws elbv2 describe-load-balancers --region ${var.aws_region} --query 'LoadBalancers[?LoadBalancerName==`${var.alb_name}`].DNSName' --output text"
 }
