@@ -11,11 +11,25 @@ ECR_REPOSITORY="${ECR_REPOSITORY:-my-webapp}"
 AWS_REGION="${AWS_REGION:-af-south-1}"
 VPC_NAME="${VPC_NAME:-projects-vpc}"
 GITHUB_USER_NAME="${GITHUB_USER_NAME:-github-actions-user}"
+CONTAINER_PORT="${CONTAINER_PORT:-3001}"
+
+# Application Load Balancer (matches terraform/alb.tf)
+# These are name-based placeholders on purpose: the ALB is deleted and
+# recreated regularly, so no ARN, allocation ID, or DNS name is stored here.
+# Every run looks the resources up by name and creates them if they are gone.
+ALB_NAME="${ALB_NAME:-webapp-cicd-loadbalancer}"
+TARGET_GROUP_NAME="${TARGET_GROUP_NAME:-webapp-cicd-target-group}"
+ALB_PORT="${ALB_PORT:-80}"
+HEALTH_CHECK_PATH="${HEALTH_CHECK_PATH:-/}"
+HEALTH_CHECK_INTERVAL="${HEALTH_CHECK_INTERVAL:-30}"
+HEALTH_CHECK_TIMEOUT="${HEALTH_CHECK_TIMEOUT:-5}"
+HEALTHY_THRESHOLD="${HEALTHY_THRESHOLD:-5}"
+UNHEALTHY_THRESHOLD="${UNHEALTHY_THRESHOLD:-2}"
 
 # Application Auto Scaling (matches the live target/policy)
 AUTOSCALING_MIN="${AUTOSCALING_MIN:-1}"
 AUTOSCALING_MAX="${AUTOSCALING_MAX:-3}"
-AUTOSCALING_CPU_TARGET="${AUTOSCALING_CPU_TARGET:-70}"
+AUTOSCALING_CPU_TARGET="${AUTOSCALING_CPU_TARGET:-30}"
 AUTOSCALING_SCALE_OUT_COOLDOWN="${AUTOSCALING_SCALE_OUT_COOLDOWN:-60}"
 AUTOSCALING_SCALE_IN_COOLDOWN="${AUTOSCALING_SCALE_IN_COOLDOWN:-60}"
 AUTOSCALING_POLICY_NAME="${AUTOSCALING_POLICY_NAME:-Target-tracking-auto scaling-policy}"
@@ -28,6 +42,7 @@ echo "Service: $SERVICE_NAME"
 echo "ECR Repository: $ECR_REPOSITORY"
 echo "Region: $AWS_REGION"
 echo "VPC: $VPC_NAME"
+echo "ALB: $ALB_NAME (port $ALB_PORT -> $TARGET_GROUP_NAME)"
 echo ""
 
 # Check if AWS CLI is configured
@@ -212,8 +227,29 @@ echo "✅ VPC: $VPC_ID"
 echo "✅ Subnets: $SUBNETS"
 
 # 5. Create security group
+# The ALB and the ECS tasks share this group: ALB_PORT is the public listener,
+# CONTAINER_PORT is the task port (also reachable directly by public IP).
 echo "🛡️ Creating security group..."
 SECURITY_GROUP_NAME="webapp-cicd-sg"
+
+ensure_ingress() {
+    local port=$1
+    local existing
+    existing=$(aws ec2 describe-security-groups \
+        --region "$AWS_REGION" \
+        --group-ids "$SECURITY_GROUP_ID" \
+        --query "SecurityGroups[0].IpPermissions[?IpProtocol=='tcp' && FromPort==\`$port\` && ToPort==\`$port\` && contains(IpRanges[].CidrIp, '0.0.0.0/0')] | length(@)" \
+        --output text)
+    if [ "$existing" = "0" ]; then
+        aws ec2 authorize-security-group-ingress \
+            --region "$AWS_REGION" \
+            --group-id "$SECURITY_GROUP_ID" \
+            --protocol tcp \
+            --port "$port" \
+            --cidr 0.0.0.0/0 >/dev/null
+        echo "✅ Added inbound rule for port $port"
+    fi
+}
 
 SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
     --region "$AWS_REGION" \
@@ -231,17 +267,117 @@ else
         --vpc-id $VPC_ID \
         --query 'GroupId' \
         --output text)
-
-    # Add inbound rule for port 3001
-    aws ec2 authorize-security-group-ingress \
-        --region "$AWS_REGION" \
-        --group-id $SECURITY_GROUP_ID \
-        --protocol tcp \
-        --port 3001 \
-        --cidr 0.0.0.0/0
-
     echo "✅ Security group created: $SECURITY_GROUP_ID"
 fi
+
+# Adding the rules after creation also repairs an older stack that only had 3001.
+ensure_ingress "$ALB_PORT"
+ensure_ingress "$CONTAINER_PORT"
+
+# 5b. Create the ALB, its target group, and the HTTP listener
+# This mirrors terraform/alb.tf. The two Elastic IPs shown in the console for
+# this ALB (webapp-cicd-loadbalancer-az1 / -az2) are service-managed: AWS
+# allocates them automatically when the ALB is created, so there is no
+# ec2 allocate-address call here and no aws_eip resource in Terraform.
+echo "⚖️  Creating ALB, target group, and listener..."
+
+# A load-balanced ECS service needs the ECS service-linked role.
+aws iam create-service-linked-role \
+    --aws-service-name ecs.amazonaws.com >/dev/null 2>&1 || true
+
+# Discover by name on every run rather than caching ARNs: the ALB may have
+# been deleted and recreated since the previous run.
+TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+    --region "$AWS_REGION" \
+    --names "$TARGET_GROUP_NAME" \
+    --query 'TargetGroups[0].TargetGroupArn' \
+    --output text 2>/dev/null || true)
+
+if [ -z "$TARGET_GROUP_ARN" ] || [ "$TARGET_GROUP_ARN" = "None" ]; then
+    TARGET_GROUP_ARN=$(aws elbv2 create-target-group \
+        --region "$AWS_REGION" \
+        --name "$TARGET_GROUP_NAME" \
+        --protocol HTTP \
+        --port "$CONTAINER_PORT" \
+        --vpc-id "$VPC_ID" \
+        --target-type ip \
+        --health-check-protocol HTTP \
+        --health-check-path "$HEALTH_CHECK_PATH" \
+        --health-check-interval-seconds "$HEALTH_CHECK_INTERVAL" \
+        --health-check-timeout-seconds "$HEALTH_CHECK_TIMEOUT" \
+        --healthy-threshold-count "$HEALTHY_THRESHOLD" \
+        --unhealthy-threshold-count "$UNHEALTHY_THRESHOLD" \
+        --matcher 'HttpCode=200' \
+        --query 'TargetGroups[0].TargetGroupArn' \
+        --output text)
+    echo "✅ Target group created: $TARGET_GROUP_NAME"
+else
+    echo "✅ Target group already exists: $TARGET_GROUP_NAME"
+fi
+
+# The ECS network configuration uses a comma-separated list; --subnets needs
+# the same IDs space-separated.
+SUBNET_IDS_SPACE="${SUBNETS//,/ }"
+
+ALB_ARN=$(aws elbv2 describe-load-balancers \
+    --region "$AWS_REGION" \
+    --names "$ALB_NAME" \
+    --query 'LoadBalancers[0].LoadBalancerArn' \
+    --output text 2>/dev/null || true)
+
+if [ -z "$ALB_ARN" ] || [ "$ALB_ARN" = "None" ]; then
+    ALB_ARN=$(aws elbv2 create-load-balancer \
+        --region "$AWS_REGION" \
+        --name "$ALB_NAME" \
+        --subnets $SUBNET_IDS_SPACE \
+        --security-groups "$SECURITY_GROUP_ID" \
+        --scheme internet-facing \
+        --type application \
+        --ip-address-type ipv4 \
+        --query 'LoadBalancers[0].LoadBalancerArn' \
+        --output text)
+    echo "✅ ALB created: $ALB_NAME"
+else
+    echo "✅ ALB already exists: $ALB_NAME"
+fi
+
+LISTENER_ARN=$(aws elbv2 describe-listeners \
+    --region "$AWS_REGION" \
+    --load-balancer-arn "$ALB_ARN" \
+    --query "Listeners[?Port==\`$ALB_PORT\`].ListenerArn | [0]" \
+    --output text 2>/dev/null || true)
+
+if [ -z "$LISTENER_ARN" ] || [ "$LISTENER_ARN" = "None" ]; then
+    aws elbv2 create-listener \
+        --region "$AWS_REGION" \
+        --load-balancer-arn "$ALB_ARN" \
+        --protocol HTTP \
+        --port "$ALB_PORT" \
+        --default-actions "Type=forward,TargetGroupArn=$TARGET_GROUP_ARN" >/dev/null
+    echo "✅ Listener created on port $ALB_PORT"
+else
+    CURRENT_TARGET_GROUP=$(aws elbv2 describe-listeners \
+        --region "$AWS_REGION" \
+        --listener-arns "$LISTENER_ARN" \
+        --query 'Listeners[0].DefaultActions[0].TargetGroupArn' \
+        --output text)
+    if [ "$CURRENT_TARGET_GROUP" != "$TARGET_GROUP_ARN" ]; then
+        aws elbv2 modify-listener \
+            --region "$AWS_REGION" \
+            --listener-arn "$LISTENER_ARN" \
+            --default-actions "Type=forward,TargetGroupArn=$TARGET_GROUP_ARN" >/dev/null
+        echo "✅ Listener now forwards to $TARGET_GROUP_NAME"
+    else
+        echo "✅ Listener already forwards to the target group"
+    fi
+fi
+
+ALB_DNS_NAME=$(aws elbv2 describe-load-balancers \
+    --region "$AWS_REGION" \
+    --load-balancer-arns "$ALB_ARN" \
+    --query 'LoadBalancers[0].DNSName' \
+    --output text)
+echo "✅ ALB DNS: $ALB_DNS_NAME"
 
 # 6. Create CloudWatch log group
 echo "📊 Creating CloudWatch log group..."
@@ -277,8 +413,10 @@ aws ecs register-task-definition \
             "image": "nginx:latest",
             "portMappings": [
                 {
-                    "containerPort": 3001,
-                    "protocol": "tcp"
+                    "containerPort": $CONTAINER_PORT,
+                    "hostPort": $CONTAINER_PORT,
+                    "protocol": "tcp",
+                    "name": "webapp-$CONTAINER_PORT-tcp"
                 }
             ],
             "environment": [
@@ -312,6 +450,21 @@ EXISTING_SERVICE=$(aws ecs describe-services \
 
 if [ "$EXISTING_SERVICE" = "$SERVICE_NAME" ]; then
     echo "✅ ECS service already exists"
+    CURRENT_TARGET_GROUP=$(aws ecs describe-services \
+        --cluster "$CLUSTER_NAME" \
+        --services "$SERVICE_NAME" \
+        --region "$AWS_REGION" \
+        --query 'services[0].loadBalancers[0].targetGroupArn' \
+        --output text)
+    if [ "$CURRENT_TARGET_GROUP" != "$TARGET_GROUP_ARN" ]; then
+        aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "$SERVICE_NAME" \
+            --load-balancers "targetGroupArn=$TARGET_GROUP_ARN,containerName=webapp,containerPort=$CONTAINER_PORT" \
+            --availability-zone-rebalancing ENABLED \
+            --region "$AWS_REGION" >/dev/null
+        echo "✅ ECS service attached to the target group"
+    fi
 else
     aws ecs create-service \
         --cluster $CLUSTER_NAME \
@@ -319,9 +472,11 @@ else
         --task-definition $TASK_FAMILY \
         --desired-count 1 \
         --launch-type FARGATE \
+        --load-balancers "targetGroupArn=$TARGET_GROUP_ARN,containerName=webapp,containerPort=$CONTAINER_PORT" \
+        --availability-zone-rebalancing ENABLED \
         --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP_ID],assignPublicIp=ENABLED}" \
         --region $AWS_REGION >/dev/null
-    echo "✅ ECS service created"
+    echo "✅ ECS service created with the ALB target group"
 fi
 
 # 8b. Configure Application Auto Scaling (matches terraform/autoscaling.tf)
@@ -403,11 +558,17 @@ echo "ECS_CLUSTER: $CLUSTER_NAME"
 echo "ECS_SERVICE: $SERVICE_NAME"
 echo "ECS_TASK_DEFINITION: $TASK_FAMILY"
 echo ""
+echo "🌐 Application URL (stable ALB DNS name):"
+echo "http://$ALB_DNS_NAME"
+echo "   Health check: http://$ALB_DNS_NAME$HEALTH_CHECK_PATH"
+echo "   The ALB creates two service-managed Elastic IPs (one per public subnet);"
+echo "   they belong to the ALB and are removed when it is deleted."
+echo ""
 echo "🔧 Next Steps:"
 echo "1. Add the above secrets to your GitHub repository"
 echo "2. Push your code to trigger the first deployment"
 echo "3. Watch the GitHub Actions workflow"
-echo "4. Get your app URL from the workflow output"
+echo "4. Use the ALB URL above (it stays the same across deployments)"
 echo ""
 echo "🧹 To clean up later, run the commands in the 'Clean Up Resources'"
 echo "   section of this project's README."
