@@ -11,8 +11,8 @@ data "aws_vpc" "projects" {
   }
 }
 
-# aws_setup.sh selects subnets tagged "<vpc>-subnet-public*". The ECS task needs
-# a public subnet because it gets a public IP instead of sitting behind an ALB.
+# aws_setup.sh selects subnets tagged "<vpc>-subnet-public*". These public
+# subnets are shared by the ALB and by the ECS tasks (which also get public IPs).
 data "aws_subnets" "public" {
   filter {
     name   = "vpc-id"
