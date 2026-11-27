@@ -4,7 +4,7 @@ Load test for webapp-cicd-service via the Application Load Balancer.
 The ALB spreads requests across every healthy task, so all tasks get load.
 
 Service:        webapp-cicd-cluster / webapp-cicd-service  (af-south-1)
-Target:         http://webapp-cicd-loadbalancer-1259148409.af-south-1.elb.amazonaws.com/
+Target:         http://webapp-cicd-alb-267897426.af-south-1.elb.amazonaws.com/
 Scale trigger:  ECSServiceAverageCPUUtilization > 30%
                 (CloudWatch alarm: 3 consecutive 1-minute periods above 30%)
 Cooldowns:      60s scale-out / 60s scale-in
@@ -36,7 +36,7 @@ import threading
 import time
 import urllib.request
 
-TARGET_URL   = "http://webapp-cicd-loadbalancer-1259148409.af-south-1.elb.amazonaws.com/"
+TARGET_URL   = "http://webapp-cicd-alb-267897426.af-south-1.elb.amazonaws.com/"
 THREADS      = 100   # plenty: 100 threads held CPU at 63-66% on one task
 DURATION     = 600   # 10 min - covers 3 breaching periods + task provisioning
 INTERVAL     = 0.02  # tight loop to keep CPU elevated as tasks multiply
