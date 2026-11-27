@@ -121,10 +121,11 @@ service webapp-cicd-service has started 2 tasks: ...
 
 ### Notes and caveats
 
-- **30% is the live policy target.** `terraform/` still defaults
-  `autoscaling_cpu_target` to `70`, so if the target was changed in the
-  console without updating `terraform.tfvars`, a later `terraform apply`
-  will put it back to 70%. Keep the two in sync.
+- **30% is the live policy target.** `terraform/variables.tf` and
+  `aws-script/aws_setup.sh` now both default to `30`, so the two paths stay in
+  sync with the console policy. Override `autoscaling_cpu_target` in a
+  `terraform.tfvars` (or `AUTOSCALING_CPU_TARGET` for the script) if you change
+  the live target again.
 - **Scale-in is not instant.** After the load ends, CPU drops immediately, but
   `desiredCount` returns to 1 only after the scale-in cooldown and evaluation
   window. The extra task keeps running (and billing) during that time.
