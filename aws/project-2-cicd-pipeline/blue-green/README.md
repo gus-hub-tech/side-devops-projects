@@ -7,6 +7,11 @@ infrastructure or CI changes have been made yet.
 Code snippets below are illustrative and should be checked against the current
 Terraform AWS provider and AWS CLI docs before applying.
 
+> **Progress note (2026-11-25):** Phase 1 (a single ALB with one target group)
+> is already implemented in the live account, in `terraform/alb.tf`, and in
+> `aws-script/aws_setup.sh`. The remaining work below is the second target
+> group, listener rules, and the `CODE_DEPLOY` switch.
+
 ---
 
 ## 1. Current state and target state
@@ -17,13 +22,16 @@ Terraform AWS provider and AWS CLI docs before applying.
   task definition, and calls `amazon-ecs-deploy-task-definition`.
 - The ECS service uses the default `ECS` deployment controller, so deployments
   are **rolling updates** in place.
-- There is **no load balancer**. The app is reached via the Fargate task's
-  public IP on port `3001`, and the workflow discovers that IP at the end of the
-  job with `ecs list-tasks` / `ec2 describe-network-interfaces`.
-- Terraform adopts the live stack via `imports.tf`. It owns the service,
-  networking, security group, cluster, and supporting resources. CI owns task
-  definition revisions and images; `ignore_changes` prevents the two from
-  fighting.
+- There is now an internet-facing ALB (`webapp-cicd-loadbalancer`) with **one**
+  target group (`webapp-cicd-target-group`) on port `3001` and an HTTP listener
+  on port `80`. The app has a stable URL at the ALB DNS name, while tasks still
+  keep public IPs and the workflow prints a direct task URL as a convenience.
+  The two ALB Elastic IPs are service-managed, not standalone resources.
+- Terraform adopts the live stack via `imports.tf`. It owns the service and its
+  target group attachment, the ALB/listener, networking, security group,
+  cluster, and supporting resources. CI owns task definition revisions and
+  images; `ignore_changes` prevents the two from fighting. `aws_setup.sh`
+  creates the same ALB stack for the script-based path.
 
 ### Target state
 
