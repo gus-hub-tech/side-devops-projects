@@ -1,8 +1,9 @@
 # main.tf - Core settings and the ECS cluster for the CI/CD web app
 #
-# This configuration adopts the resources created by ../aws-script/aws_setup.sh. The
-# import blocks in imports.tf map the existing AWS resources to the addresses
-# below, so the first apply does not recreate or replace the running service.
+# This configuration adopts the resources created by ../aws-script/aws_setup.sh
+# plus the ALB that was added in the console on 2026-11-25. The import blocks in
+# imports.tf map the existing AWS resources to the addresses below, so the
+# first apply does not recreate or replace the running service.
 
 terraform {
   required_version = ">= 1.5.0"
