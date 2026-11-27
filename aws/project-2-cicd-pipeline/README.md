@@ -16,15 +16,19 @@ deployed to Amazon ECS Fargate by GitHub Actions.
 * An Amazon ECR repository with image scanning on push and a lifecycle policy
   that keeps the 1 most recent tagged image and 1 untagged image
 * An ECS Fargate cluster and service running one task
+* An internet-facing Application Load Balancer on port 80, one target group, and
+  a stable app URL in the form `http://<alb-dns-name>/`
 * CloudWatch logging for the container
 * A GitHub Actions pipeline that tests, builds, pushes, and deploys on pushes
   to `main` that touch this project
-* A public app URL in the form `http://<task-public-ip>:3001`
 
-The setup script does **not** create a load balancer, custom domain, or
-database. The deployed URL is the public IP of the running Fargate task, so it
-changes whenever ECS replaces the task. ECS Fargate and ECR can incur small
-charges while the stack is running; use the cleanup section when finished.
+The setup script and Terraform both create the ALB stack. AWS allocates two
+service-managed Elastic IPs for the ALB (one per public subnet); they are owned
+by the load balancer and are not separate resources. Tasks also keep public IPs,
+so direct access on port `3001` still works, but the ALB DNS name is the stable
+URL to use. There is no custom domain or database. ECS Fargate, ECR, and the ALB
+can incur small charges while the stack is running; use the cleanup section when
+finished.
 
 ---
 
@@ -53,7 +57,8 @@ side-devops-projects/
         ├── terraform/              # IaC that adopts the deployed AWS stack
         │   ├── main.tf             # Provider, identity, ECS cluster
         │   ├── network.tf          # Existing VPC and public subnets
-        │   ├── security.tf         # Port 3001 security group
+        │   ├── security.tf         # Ports 80 (ALB) and 3001 (task) security group
+        │   ├── alb.tf              # ALB, target group, and HTTP listener
         │   ├── ecr.tf              # Image repository and lifecycle policy
         │   ├── ecs.tf              # Task definition and service
         │   ├── iam.tf              # Execution role and GitHub Actions user
@@ -229,11 +234,15 @@ terraform plan
 terraform apply
 ```
 
-`plan` should show **12 imports, 0 to add, 0 to destroy**, plus meta-flag changes
-(`force_delete` on ECR and `force_destroy` on the IAM user) and an in-place
-update to the ECR lifecycle policy that adds tagged-image expiration. Review it
-before applying. The configuration looks up the existing `projects-vpc` and
-public subnets as data sources; it does not create networking.
+`plan` should show **imports only, 0 to add, 0 to change, 0 to destroy**. It
+adopts the live task definition revision (`:25`) and the autoscaling target/policy
+along with the original stack; the ALB, target group, and listener are
+intentionally not imported. Because the ALB is deleted and recreated regularly,
+those resources are identified only by stable names — after a recreation,
+`terraform apply` (or a re-run of `aws_setup.sh`) rebuilds them without needing
+new ARNs. The configuration looks up the existing `projects-vpc` and public
+subnets as data sources; it does not create networking. `terraform output
+app_url` prints the current ALB URL.
 
 Terraform and the CI workflow share ownership: the deploy job still registers
 new task definition revisions, so the service ignores `task_definition`
@@ -313,8 +322,9 @@ Runs only after the test job succeeds and only on `main`:
 5. Downloads the current ECS task definition.
 6. Replaces the `webapp` container image with the new image.
 7. Deploys the new task definition to the ECS service and waits for stability.
-8. Looks up the task's public IP and prints the app URL, health URL, and
-   CloudWatch console link in the job log.
+8. Looks up the task's public IP and prints the direct-access URL, health URL,
+   and CloudWatch console link in the job log. The stable ALB URL is available
+   separately (see Step 6).
 
 Look for output like:
 
@@ -329,13 +339,22 @@ Look for output like:
 
 ## ✅ Step 6: Open the Deployed App
 
-Use the URL printed by the workflow:
+The stable URL is the ALB DNS name (port `80`). Find it with either option:
 
-* App: `http://<public-ip>:3001`
-* Health: `http://<public-ip>:3001/health`
-* API info: `http://<public-ip>:3001/api/info`
-* Version: `http://<public-ip>:3001/api/version`
+```bash
+# From Terraform (after adoption):
+cd terraform && terraform output app_url
 
+# Or with the AWS CLI:
+aws elbv2 describe-load-balancers --region af-south-1 \
+  --names webapp-cicd-loadbalancer \
+  --query 'LoadBalancers[0].DNSName' --output text
+```
+
+Then open `http://<alb-dns>/`, `http://<alb-dns>/health`,
+`http://<alb-dns>/api/info`, or `http://<alb-dns>/api/version`.
+
+The workflow still prints the task's direct URL on port `3001` as a convenience.
 To find the current public IP yourself:
 
 ```bash
@@ -356,8 +375,8 @@ aws ec2 describe-network-interfaces --network-interface-ids "$ENI" \
   --output text
 ```
 
-Because there is no load balancer, this IP changes when ECS replaces the task.
-For a stable URL, add an Application Load Balancer and Route 53 record.
+That task IP changes whenever ECS replaces the task; use the ALB DNS name above
+for anything that needs a stable URL (a Route 53 record can be added later).
 
 ### Application endpoints
 
@@ -650,7 +669,7 @@ and try again.
 * ~~Add a slow test endpoint to verify in-flight requests finish draining during `SIGTERM`~~ ✅ Complete
 * ~~Add a load test script to drive CPU and verify ECS service autoscaling works~~ ✅ Complete
 * ~~Add autoscaling to the ECS service and verify it works with the load test script~~ ✅ Complete
-* Add an Application Load Balancer and a stable DNS name
+* ~~Add an Application Load Balancer and a stable DNS name~~ ✅ Complete (ALB DNS; no custom domain yet)
 * ~~Add lifecycle policies to the ECR repository to clean up old images~~ ✅ Complete
 * Try blue/green deployments with CodeDeploy
 * Add a database and store connection details in Secrets Manager
